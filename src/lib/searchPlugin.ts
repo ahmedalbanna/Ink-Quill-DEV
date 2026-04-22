@@ -11,6 +11,7 @@ export interface SearchOptions {
   isSemantic: boolean;
   searchIndex: number; // The global character index (from App.tsx)
   currentMatchIndex: number; // The 1-based index of the current match
+  embeddingOptions?: { provider?: string; apiKey?: string; model?: string };
 }
 
 class SearchIndex {
@@ -112,7 +113,7 @@ class SearchIndex {
       }
       
       const { ragService } = await import('../services/ragService');
-      const results = await ragService.searchDetailed(query, 10, 0.2); // threshold 0.2 for broader discovery
+      const results = await ragService.searchDetailed(query, 10, 0.2, options.embeddingOptions); // threshold 0.2 for broader discovery
       
       const fullText = doc.textContent;
       const matches: { start: number, end: number, score: number }[] = [];
@@ -141,6 +142,7 @@ class SearchIndex {
 
 export const createSearchPlugin = () => {
   const searchIndex = new SearchIndex();
+  let editorView: any = null;
 
   return new Plugin({
     key: searchPluginKey,
@@ -155,6 +157,7 @@ export const createSearchPlugin = () => {
       apply(tr, value, oldState, newState) {
         const query = tr.getMeta('searchQuery');
         const options = tr.getMeta('searchOptions');
+        const refresh = tr.getMeta('searchRefresh');
 
         const nextQuery = query !== undefined ? query : value.query;
         const nextOptions = options !== undefined ? options : value.options;
@@ -168,8 +171,8 @@ export const createSearchPlugin = () => {
           return { decorations: DecorationSet.empty, query: nextQuery, options: nextOptions };
         }
 
-        // Re-calculate decorations if query/options changed or doc changed
-        if (query !== undefined || options !== undefined || tr.docChanged) {
+        // Re-calculate decorations if query/options changed or doc changed or refresh triggered
+        if (query !== undefined || options !== undefined || tr.docChanged || refresh) {
           // We can't await in apply, so we handle it asynchronously 
           // In a real plugin, you'd use a meta action to update decorations after the async part
           // For now, we'll use a hack or just trigger a follow-up transaction
@@ -177,12 +180,11 @@ export const createSearchPlugin = () => {
           const matchesPromise = searchIndex.findMatches(newState.doc, nextQuery, nextOptions);
           
           // Trigger a follow-up if it was an async operation (semantic)
-          if (nextOptions.isSemantic && query !== undefined) {
-             matchesPromise.then(matches => {
-                // Dispatch a transaction with the same query to force re-render with new matches
-                const view = (searchPluginKey.get(newState) as any)?.view;
-                if (view) {
-                   view.dispatch(view.state.tr.setMeta('searchQuery', nextQuery).setMeta('searchOptions', nextOptions));
+          if (nextOptions.isSemantic && (query !== undefined || tr.docChanged)) {
+             matchesPromise.then(() => {
+                // Dispatch a transaction to refresh view with new matches
+                if (editorView && editorView.state.doc === newState.doc) {
+                   editorView.dispatch(editorView.state.tr.setMeta('searchRefresh', true));
                 }
              });
           }
@@ -209,7 +211,11 @@ export const createSearchPlugin = () => {
                ? m.relevance > 0.8 ? "opacity-100 ring-minimal-accent" : m.relevance > 0.5 ? "opacity-70 ring-minimal-accent/50" : "opacity-40 ring-minimal-accent/20"
                : "";
 
-            return Decoration.inline(m.start, m.end, {
+            // Ensure positions are within valid bounds of the new document
+            const start = Math.max(0, Math.min(m.start, newState.doc.content.size));
+            const end = Math.max(0, Math.min(m.end, newState.doc.content.size));
+
+            return Decoration.inline(start, end, {
               class: cn(
                 m.isCurrent 
                   ? "search-match-current bg-minimal-accent text-white shadow-[0_0_15px_rgba(var(--minimal-accent-rgb),0.8)] ring-2 z-10 scale-[1.05] inline-block transition-all duration-300 rounded-[2px] px-[1.5px] -mx-[1.5px]" 
@@ -231,6 +237,17 @@ export const createSearchPlugin = () => {
           ...value,
           decorations: value.decorations.map(tr.mapping, newState.doc)
         };
+      }
+    },
+    view(view) {
+      editorView = view;
+      return {
+        update: (v) => {
+          editorView = v;
+        },
+        destroy: () => {
+          editorView = null;
+        }
       }
     },
     props: {

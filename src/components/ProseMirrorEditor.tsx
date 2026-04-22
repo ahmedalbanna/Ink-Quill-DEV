@@ -33,7 +33,11 @@ import {
   Zap,
   Layout,
   FileText,
-  RotateCcw
+  RotateCcw,
+  Copy,
+  Scissors,
+  ClipboardPaste,
+  MoreVertical
 } from 'lucide-react';
 import { tableNodes, tableEditing, goToNextCell } from 'prosemirror-tables';
 import { motion, AnimatePresence } from 'motion/react';
@@ -210,6 +214,8 @@ class UmlNodeView {
   }
 
   ignoreSelection() { return true; }
+  ignoreMutation() { return true; }
+  stopEvent() { return true; }
 }
 
 interface Props {
@@ -219,10 +225,12 @@ interface Props {
   className?: string;
   placeholder?: string;
   isTypewriter?: boolean;
+  isFocusMode?: boolean;
+  onToggleFocusMode?: () => void;
   direction?: 'ltr' | 'rtl';
   personalInstructions?: string;
   selectedModel?: string;
-  provider?: 'ollama' | 'openai' | 'anthropic';
+  provider?: string;
   apiKeys?: any;
   providerConfigs?: any;
   onAiResult?: (result: string) => void;
@@ -236,6 +244,7 @@ interface Props {
     isSemantic: boolean;
     searchIndex: number;
     currentMatchIndex: number;
+    embeddingOptions?: { provider?: string; apiKey?: string; model?: string };
   };
   collab?: {
     enabled: boolean;
@@ -255,6 +264,7 @@ export interface EditorRef {
   getDoc: () => any;
   handleFormat: (type: string) => void;
   getCursorContext: () => string;
+  scrollToText: (text: string) => void;
 }
 
 const linkPreviewPlugin = new Plugin({
@@ -285,6 +295,8 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
   className, 
   placeholder, 
   isTypewriter, 
+  isFocusMode,
+  onToggleFocusMode,
   direction = 'ltr', 
   personalInstructions,
   selectedModel = 'mistral',
@@ -307,6 +319,16 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [showAiPopover, setShowAiPopover] = useState(false);
   const [slashMenu, setSlashMenu] = useState<{ x: number, y: number, show: boolean, pos: number }>({ x: 0, y: 0, show: false, pos: 0 });
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, show: boolean, pos: number }>({ x: 0, y: 0, show: false, pos: 0 });
+
+  // Close menus on outside click
+  useEffect(() => {
+    const handleClick = () => {
+      setContextMenu(prev => ({ ...prev, show: false }));
+    };
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -349,6 +371,37 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
     // Search highlighting plugin
     const searchPlugin = createSearchPlugin();
 
+    // Focus Mode plugin
+    const focusModePlugin = new Plugin({
+      state: {
+        init() { return DecorationSet.empty },
+        apply(tr, set, oldState, newState) {
+          if (!isFocusMode) return DecorationSet.empty;
+          const { selection } = newState;
+          const $pos = selection.$from;
+          let topNodePos = 0;
+          let found = false;
+          newState.doc.forEach((node, pos) => {
+            if (found) return;
+            if (pos <= $pos.pos && pos + node.nodeSize >= $pos.pos) {
+              topNodePos = pos;
+              found = true;
+            }
+          });
+          if (!found) return DecorationSet.empty;
+          const node = newState.doc.nodeAt(topNodePos);
+          if (!node) return DecorationSet.empty;
+          const deco = Decoration.node(topNodePos, topNodePos + node.nodeSize, { class: 'is-focused-node' });
+          return DecorationSet.create(newState.doc, [deco]);
+        }
+      },
+      props: {
+        decorations(state) {
+          return this.getState(state);
+        }
+      }
+    });
+
     // Collaboration plugin
     const collabInstance = collab?.enabled ? createCollabPlugin({
       docId: collab.docId,
@@ -374,7 +427,25 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
         linkPreviewPlugin,
         tableEditing(),
         typewriterPlugin,
+        focusModePlugin,
         searchPlugin,
+        new Plugin({
+          props: {
+            handleDOMEvents: {
+              contextmenu(view, event) {
+                event.preventDefault();
+                const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
+                setContextMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  show: true,
+                  pos: pos ? pos.pos : view.state.selection.from
+                });
+                return true;
+              }
+            }
+          }
+        }),
         new Plugin({
           view() {
             return {
@@ -515,10 +586,13 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
       prevSearchQuery.current = searchQuery;
       prevSearchOptions.current = searchOptions;
 
-      // Restore view attributes (direction, etc)
       viewRef.current.setProps({
         attributes: {
-          class: cn("ProseMirror", isTypewriter && "typewriter-mode"),
+          class: cn(
+            "ProseMirror", 
+            isTypewriter && "typewriter-mode",
+            isFocusMode && "focus-mode-active"
+          ),
           "data-placeholder": placeholder || "Start writing...",
           dir: direction,
         }
@@ -554,10 +628,11 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
     if (!viewRef.current) return '';
     const { state } = viewRef.current;
     const { $from } = state.selection;
+    const depth = $from.depth;
     
-    // Get current paragraph
-    const start = $from.start();
-    const end = $from.end();
+    // Get current block content safely
+    const start = depth > 0 ? $from.start(depth) : 0;
+    const end = depth > 0 ? $from.end(depth) : state.doc.content.size;
     const currentPara = state.doc.textBetween(start, end, ' ');
     
     // Try to find the heading path
@@ -640,6 +715,36 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
     },
     getCursorContext: () => {
       return getCursorContextInternal();
+    },
+    scrollToText: (text: string) => {
+      if (!viewRef.current) return;
+      const { state, dispatch } = viewRef.current;
+      const docText = state.doc.textContent;
+      const index = docText.indexOf(text);
+      if (index !== -1) {
+        let pos = 1;
+        let found = false;
+        state.doc.descendants((node, nodePos) => {
+          if (found) return false;
+          if (node.isText) {
+            const nodeText = node.text || "";
+            const internalIndex = nodeText.indexOf(text);
+            if (internalIndex !== -1) {
+              pos = nodePos + internalIndex;
+              found = true;
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (found) {
+          const tr = state.tr.setSelection(TextSelection.create(state.doc, pos, pos + text.length));
+          tr.scrollIntoView();
+          dispatch(tr);
+          viewRef.current.focus();
+        }
+      }
     }
   }));
 
@@ -679,7 +784,7 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
         {
           personalInstructions, 
           model: selectedModel,
-          provider: provider as 'ollama' | 'openai' | 'anthropic',
+          provider: provider as any,
           apiKeys,
           providerConfigs,
           onChunk: (chunk) => {
@@ -715,32 +820,47 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
 
   const handleSlashSelect = async (action: string) => {
     if (!viewRef.current) return;
-    const { state, dispatch } = viewRef.current;
+    const { state } = viewRef.current;
     
-    // Remove the '/' character
-    const tr = state.tr.delete(slashMenu.pos - 1, slashMenu.pos);
-    dispatch(tr);
+    // Remove the '/' character - ensure we don't go out of bounds
+    const pos = Math.max(1, Math.min(slashMenu.pos, state.doc.content.size));
+    const tr = state.tr.delete(pos - 1, pos);
+    viewRef.current.dispatch(tr);
+    
+    const newState = viewRef.current.state;
     setSlashMenu(prev => ({ ...prev, show: false }));
 
     if (action === 'h1') handleFormat('h1');
     else if (action === 'h2') handleFormat('h2');
     else if (action === 'bullet') {
       const node = editorSchema.nodes.bullet_list.createAndFill();
-      if (node) dispatch(state.tr.replaceSelectionWith(node));
+      if (node) viewRef.current.dispatch(newState.tr.replaceSelectionWith(node));
     }
-    else if (action === 'code') setBlockType(editorSchema.nodes.code_block)(state, dispatch);
+    else if (action === 'code') setBlockType(editorSchema.nodes.code_block)(newState, viewRef.current.dispatch);
     else if (action === 'image') onImageUploadRequest?.();
     else if (['improve', 'outline', 'summarize', 'rewrite', 'complete-text'].includes(action) || action.startsWith('ai-')) {
       const type = action.replace('ai-', '') as AIAssistantAction;
-      const $pos = state.doc.resolve(slashMenu.pos);
-      const start = $pos.start();
-      const end = $pos.end();
+      
+      // Resolve pos in the NEW document after slash was removed
+      // The slash was at pos-1 to pos, so it's gone.
+      const resolvedPos = newState.doc.resolve(Math.min(pos - 1, newState.doc.content.size));
+      const depth = resolvedPos.depth;
+      
+      // If we are at depth 0, we can't get start/end of the current block
+      // Fallback to start/end of the doc or skip
+      const start = depth > 0 ? resolvedPos.start(depth) : 0;
+      const end = depth > 0 ? resolvedPos.end(depth) : newState.doc.content.size;
       
       // Select the current paragraph/block
-      const trSelect = viewRef.current.state.tr.setSelection(TextSelection.create(viewRef.current.state.doc, start, end));
-      viewRef.current.dispatch(trSelect);
-      
-      await handleAIAction(type);
+      try {
+        const trSelect = newState.tr.setSelection(TextSelection.create(newState.doc, start, end));
+        viewRef.current.dispatch(trSelect);
+        await handleAIAction(type);
+      } catch (err) {
+        console.error("Failed to set selection for AI action:", err);
+        // Fallback: just run it on current (likely empty) selection
+        await handleAIAction(type);
+      }
     }
     
     viewRef.current.focus();
@@ -996,6 +1116,112 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
             onSelect={handleSlashSelect}
             onClose={() => setSlashMenu(prev => ({ ...prev, show: false }))}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {contextMenu.show && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            style={{ 
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+            }}
+            className="z-[200] w-56 bg-zinc-900 border border-zinc-700/50 rounded-xl shadow-2xl p-2 flex flex-col gap-1 backdrop-blur-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col gap-1">
+              <div className="px-2 py-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-800/30 rounded-t-lg mb-1">Editing</div>
+              {[
+                { id: 'bold', label: 'Bold', icon: Bold, action: () => handleFormat('bold') },
+                { id: 'italic', label: 'Italic', icon: Italic, action: () => handleFormat('italic') },
+                { id: 'underline', label: 'Underline', icon: Underline, action: () => handleFormat('underline') },
+                { id: 'strike', label: 'Strikethrough', icon: Strikethrough, action: () => handleFormat('strike') },
+                { id: 'code', label: 'Code Block', icon: Code, action: () => handleFormat('code') },
+                { 
+                  id: 'focus', 
+                  label: isFocusMode ? 'Disable Focus' : 'Focus Active Paragraph', 
+                  icon: isFocusMode ? Minimize2 : Maximize2, 
+                  action: () => onToggleFocusMode?.()
+                },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => { item.action(); setContextMenu(prev => ({ ...prev, show: false })); }}
+                  className="flex items-center gap-2 p-1.5 hover:bg-white/10 rounded-lg text-left transition-colors text-zinc-300"
+                >
+                  <item.icon className="w-3.5 h-3.5" />
+                  <span className="text-xs font-medium">{item.label}</span>
+                </button>
+              ))}
+
+              <div className="h-px bg-zinc-800 my-1 mx-1" />
+
+              <div className="px-2 py-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-800/30 mb-1">AI Power</div>
+              {[
+                { id: 'improve', label: 'Refine & Improve', icon: Zap, action: () => handleAIAction('improve') },
+                { id: 'fix-grammar', label: 'Fix Errors', icon: CheckCheck, action: () => handleAIAction('fix-grammar') },
+                { id: 'summarize', label: 'Summarize', icon: FileText, action: () => handleAIAction('summarize') },
+                { id: 'complete-text', label: 'Continue Writing', icon: ArrowRight, action: () => handleAIAction('complete-text') },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => { item.action(); setContextMenu(prev => ({ ...prev, show: false })); }}
+                  className="flex items-center gap-2 p-1.5 hover:bg-minimal-accent/20 rounded-lg text-left transition-colors text-zinc-300"
+                >
+                  <item.icon className="w-3.5 h-3.5 text-minimal-accent" />
+                  <span className="text-xs font-medium">{item.label}</span>
+                </button>
+              ))}
+
+              <div className="h-px bg-zinc-800 my-1 mx-1" />
+
+              <div className="px-2 py-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-800/30 mb-1">Clipboard</div>
+              {[
+                { 
+                  id: 'copy', 
+                  label: 'Copy text', 
+                  icon: Copy, 
+                  action: () => {
+                    if (viewRef.current) {
+                      const { state } = viewRef.current;
+                      const { from, to } = state.selection;
+                      const text = state.doc.textBetween(from, to, ' ');
+                      if (text) navigator.clipboard.writeText(text);
+                    }
+                  } 
+                },
+                { 
+                  id: 'cut', 
+                  label: 'Cut text', 
+                  icon: Scissors, 
+                  action: () => {
+                    if (viewRef.current) {
+                      const { state, dispatch } = viewRef.current;
+                      const { from, to } = state.selection;
+                      const text = state.doc.textBetween(from, to, ' ');
+                      if (text) {
+                        navigator.clipboard.writeText(text);
+                        dispatch(state.tr.deleteSelection());
+                      }
+                    }
+                  } 
+                }
+              ].map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => { item.action(); setContextMenu(prev => ({ ...prev, show: false })); }}
+                  className="flex items-center gap-2 p-1.5 hover:bg-zinc-800 rounded-lg text-left transition-colors text-zinc-400 hover:text-zinc-200"
+                >
+                  <item.icon className="w-3.5 h-3.5" />
+                  <span className="text-xs font-medium">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

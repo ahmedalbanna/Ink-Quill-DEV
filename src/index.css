@@ -188,6 +188,22 @@
   @apply text-minimal-muted/40 absolute pointer-events-none;
 }
 
+/* Focus Mode Styles */
+.focus-mode-active {
+  transition: all 0.5s ease;
+}
+
+.focus-mode-active .ProseMirror > * {
+  opacity: 0.2;
+  filter: blur(1.5px);
+  transition: all 0.5s ease;
+}
+
+.focus-mode-active .ProseMirror > .is-focused-node {
+  opacity: 1;
+  filter: blur(0);
+}
+
 /* UML Rendering Styles */
 .uml-code-block-container {
   @apply relative my-8 flex flex-col gap-4;

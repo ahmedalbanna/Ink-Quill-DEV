@@ -19,25 +19,29 @@ vi.mock('../services/snapshotService', () => ({
 describe('editorStore', () => {
   beforeEach(() => {
     useEditorStore.setState({
-      content: '# Welcome to Ink & Quill\n\nStart writing...',
+      pages: [{ id: 'default', title: 'Chapter 1', content: '# Welcome to Ink & Quill\n\nStart writing...' }],
+      activePageIds: ['default'],
       cursor: null,
-      history: { past: [], future: [] },
       snapshots: [],
       wordGoal: 0,
     });
     vi.clearAllMocks();
   });
 
-  it('should update content', () => {
-    const { setContent } = useEditorStore.getState();
-    setContent('New content');
-    expect(useEditorStore.getState().content).toBe('New content');
+  it('should update page content', () => {
+    const { setPageContent } = useEditorStore.getState();
+    setPageContent('default', 'New content');
+    expect(useEditorStore.getState().pages[0].content).toBe('New content');
   });
 
-  it('should support functional updates for content', () => {
-    const { setContent } = useEditorStore.getState();
-    setContent((prev) => prev + ' added');
-    expect(useEditorStore.getState().content).toBe('# Welcome to Ink & Quill\n\nStart writing... added');
+  it('should add a new page', () => {
+    const { addPage } = useEditorStore.getState();
+    addPage('New Chapter', 'Chapter content');
+    const state = useEditorStore.getState();
+    expect(state.pages.length).toBe(2);
+    expect(state.pages[1].title).toBe('New Chapter');
+    expect(state.pages[1].content).toBe('Chapter content');
+    expect(state.activePageIds).toContain(state.pages[1].id);
   });
 
   it('should add snapshots', async () => {

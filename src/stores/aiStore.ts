@@ -14,20 +14,32 @@ interface AIState {
     model: string;
     error?: string;
   };
-  provider: 'ollama' | 'openai' | 'anthropic';
+  provider: 'ollama' | 'openai' | 'anthropic' | 'google' | 'pipeline';
+  serviceConfigs: {
+    chat: { provider: AIState['provider']; model: string };
+    actions: { provider: AIState['provider']; model: string };
+    semantic: { provider: AIState['provider']; model: string };
+    embeddings: { provider: AIState['provider']; model: string };
+  };
   apiKeys: {
     openai: string;
     anthropic: string;
+    google: string;
   };
   providerConfigs: {
     ollama: {
       host: string;
     };
+    pipeline: {
+      model: string;
+    };
   };
   savedChats: { id: string; name: string; history: ChatMessage[]; timestamp: number; documentSnapshot?: string }[];
   
+  setServiceProvider: (service: keyof AIState['serviceConfigs'], provider: AIState['provider']) => void;
+  setServiceModel: (service: keyof AIState['serviceConfigs'], model: string) => void;
   setProvider: (provider: AIState['provider'] | ((prev: AIState['provider']) => AIState['provider'])) => void;
-  setApiKey: (provider: 'openai' | 'anthropic', key: string) => void;
+  setApiKey: (provider: 'openai' | 'anthropic' | 'google', key: string) => void;
   setOllamaHost: (host: string) => void;
   addMessage: (msg: ChatMessage) => void;
   setChatHistory: (history: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
@@ -54,14 +66,24 @@ export const useAIStore = create<AIState>()(
         model: '',
       },
 
-      provider: 'ollama',
+      provider: 'google',
+      serviceConfigs: {
+        chat: { provider: 'google', model: 'gemini-1.5-flash' },
+        actions: { provider: 'google', model: 'gemini-1.5-flash' },
+        semantic: { provider: 'google', model: 'gemini-1.5-flash' },
+        embeddings: { provider: 'google', model: 'text-embedding-004' }
+      },
       apiKeys: {
         openai: '',
         anthropic: '',
+        google: ''
       },
       providerConfigs: {
         ollama: {
           host: '',
+        },
+        pipeline: {
+          model: 'Xenova/all-MiniLM-L6-v2',
         },
       },
       savedChats: [],
@@ -93,6 +115,18 @@ export const useAIStore = create<AIState>()(
       setProvider: (provider) => set((state) => ({ 
         provider: typeof provider === 'function' ? provider(state.provider) : provider 
       })),
+      setServiceProvider: (service, provider) => set((state) => ({
+        serviceConfigs: {
+          ...state.serviceConfigs,
+          [service]: { ...state.serviceConfigs[service], provider }
+        }
+      })),
+      setServiceModel: (service, model) => set((state) => ({
+        serviceConfigs: {
+          ...state.serviceConfigs,
+          [service]: { ...state.serviceConfigs[service], model }
+        }
+      })),
       setApiKey: (provider, key) => set((state) => ({
         apiKeys: { ...state.apiKeys, [provider]: key }
       })),
@@ -109,6 +143,7 @@ export const useAIStore = create<AIState>()(
         chatHistory: state.chatHistory,
         savedChats: state.savedChats,
         provider: state.provider,
+        serviceConfigs: state.serviceConfigs,
         apiKeys: state.apiKeys,
         providerConfigs: state.providerConfigs,
       }),

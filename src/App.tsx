@@ -36,6 +36,7 @@ import {
   History,
   Underline,
   Strikethrough as Stroke,
+  FolderRoot,
   Save,
   Download,
   ImagePlus,
@@ -52,6 +53,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { cn, useMediaQuery } from './lib/utils';
 import ProseMirrorEditor, { EditorRef } from './components/ProseMirrorEditor';
+import { SemanticFolders } from './components/SemanticFolders';
 import { generateContentFromPrompt, processAIAction, chatWithAI, checkOllamaConnection, type ChatMessage } from './services/aiService';
 import { ragService } from './services/ragService';
 import { exportToPDF, exportToHTML, exportToMarkdown, exportToDOCX } from './services/exportService';
@@ -84,18 +86,52 @@ This content covers:
 Enjoy your writing journey with Ink & Quill!
 `;
 
+const STATIC_MODELS: Record<string, string[]> = {
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  anthropic: ['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
+  google: ['gemini-3-flash-preview', 'gemini-1.5-pro', 'gemini-1.5-flash', 'text-embedding-004'],
+  pipeline: ['Xenova/all-MiniLM-L6-v2', 'Xenova/distilbert-base-uncased-distilled-squad']
+};
+
 export default function App() {
-  const { content: markdown, setContent: setMarkdown, snapshots, wordGoal, setWordGoal, addSnapshot, setSnapshots, loadSnapshots } = useEditorStore();
+  const { 
+    pages, 
+    activePageIds, 
+    setPageContent, 
+    addPage, 
+    removePage, 
+    togglePageOpen,
+    snapshots, 
+    wordGoal, 
+    setWordGoal, 
+    addSnapshot, 
+    setSnapshots, 
+    loadSnapshots 
+  } = useEditorStore();
+  
+  // Ref for multiple editors
+  const editorRefs = useRef<Record<string, EditorRef | null>>({});
+  
+  // For compatibility with single-doc logic, we'll use the "last active" page for some things
+  const activePage = pages.find(p => p.id === activePageIds[activePageIds.length - 1]) || pages[0];
+  const markdown = activePage?.content || '';
+  const setMarkdown = (content: string) => {
+    if (activePage) setPageContent(activePage.id, content);
+  };
+
   const {
     
     isTypewriter, toggleTypewriter, setTypewriter,
     isSuperZen, toggleSuperZen, setSuperZen,
     showAIAssistant: showAiAssistant, setAIAssistant: setAiAssistant,
     showSearch, setSearch,
+    isFocusMode, toggleFocusMode,
+    showSemanticFolders, setSemanticFolders,
     showMobileMenu, setMobileMenu,
     showSettings, setSettings,
     showAiSettings, setAiSettings,
     showSavedConversations, setSavedConversations,
+    showPages, setPagesMenu,
     direction, setDirection, isIndexing,
     indexedChunks, indexedEpisodes
   } = useUIStore();
@@ -109,6 +145,7 @@ export default function App() {
     addMessage: addChatMessage,
     savedChats, setSavedChats,
     provider, setProvider,
+    serviceConfigs, setServiceProvider, setServiceModel,
     apiKeys, setApiKey,
     providerConfigs, setOllamaHost
   } = useAIStore();
@@ -125,6 +162,7 @@ export default function App() {
 
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiResult, setAiResult] = useState<string | null>(null);
+  const [aiSettingsTab, setAiSettingsTab] = useState<'chat' | 'actions' | 'semantic' | 'embeddings'>('chat');
   const [findText, setFindText] = useState('');
   const [replaceText, setReplaceText] = useState('');
   const [searchIndex, setSearchIndex] = useState(-1);
@@ -136,6 +174,29 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showFileActions, setShowFileActions] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const pagesRef = useRef(pages);
+
+  useEffect(() => {
+    pagesRef.current = pages;
+  }, [pages]);
+
+  // Auto-save logic: 5 minute interval
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      setLastSaved(now);
+      // We also store a separate backup in localStorage specifically for this 5-min interval
+      localStorage.setItem('ink-quill-autosave-backup-v2', JSON.stringify(pagesRef.current));
+      localStorage.setItem('ink-quill-autosave-time', now.toISOString());
+    }, 5 * 60 * 1000);
+
+    // Initial load check for the periodic backup if the main content was somehow lost
+    const savedTime = localStorage.getItem('ink-quill-autosave-time');
+    if (savedTime) setLastSaved(new Date(savedTime));
+
+    return () => clearInterval(interval);
+  }, []); // Only run on mount
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -239,7 +300,12 @@ export default function App() {
     setSavedChats(updated);
     
     // Index into episodic memory
-    ragService.indexConversation(newChat.id, newChat.name, newChat.history);
+    const embeddingOptions = { 
+      provider: serviceConfigs.embeddings.provider, 
+      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
+      model: serviceConfigs.embeddings.model 
+    };
+    ragService.indexConversation(newChat.id, newChat.name, newChat.history, embeddingOptions);
     
     alert("Conversation saved successfully.");
   };
@@ -335,11 +401,16 @@ export default function App() {
   // Debounced RAG indexing
   useEffect(() => {
     const timeout = setTimeout(() => {
-      ragService.indexDocument(markdown);
+      const embeddingOptions = { 
+        provider: serviceConfigs.embeddings.provider, 
+        apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
+        model: serviceConfigs.embeddings.model 
+      };
+      ragService.indexDocument(markdown, embeddingOptions);
     }, 5000); // 5s debounce for performance
 
     return () => clearTimeout(timeout);
-  }, [markdown]);
+  }, [markdown, serviceConfigs.embeddings, apiKeys]);
 
   // Snapshot on document close
   useEffect(() => {
@@ -514,7 +585,12 @@ export default function App() {
     if (!aiPrompt.trim() && chatAttachedImages.length === 0) return;
 
     // Ensure RAG index is current for this query
-    ragService.indexDocument(markdown);
+    const embeddingOptions = { 
+      provider: serviceConfigs.embeddings.provider, 
+      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
+      model: serviceConfigs.embeddings.model 
+    };
+    ragService.indexDocument(markdown, embeddingOptions);
 
     const userMessage: ChatMessage = {
       role: 'user',
@@ -541,8 +617,8 @@ export default function App() {
         markdown,
         {
           personalInstructions: aiPersonalInstructions,
-          model: selectedModel,
-          provider,
+          model: serviceConfigs.chat.model,
+          provider: serviceConfigs.chat.provider,
           apiKeys,
           providerConfigs,
           onChunk: (chunk) => {
@@ -556,7 +632,8 @@ export default function App() {
               return next;
             });
           },
-          cursorContext
+          cursorContext,
+          embeddingOptions
         }
       );
       setAiResult(response);
@@ -578,17 +655,19 @@ export default function App() {
 
     switch (method) {
       case 'append':
+        const lastId = activePageIds[activePageIds.length - 1];
+        const editor = lastId ? editorRefs.current[lastId] : null;
         const prefix = markdown.trim() ? "\n\n" : "";
-        editorRef.current?.appendMarkdown(prefix + aiResult);
+        editor?.appendMarkdown(prefix + aiResult);
         break;
       case 'insert':
-        editorRef.current?.replaceSelectionWithMarkdown(aiResult);
-        break;
       case 'replace':
-        editorRef.current?.replaceSelectionWithMarkdown(aiResult);
+        const currentId = activePageIds[activePageIds.length - 1];
+        editorRefs.current[currentId]?.replaceSelectionWithMarkdown(aiResult);
         break;
       case 'suggest':
-        editorRef.current?.replaceSelectionWithMarkdown(`\n\n> **Suggested Edit:**\n> ${aiResult.split('\n').join('\n> ')}\n\n`);
+        const activeId = activePageIds[activePageIds.length - 1];
+        editorRefs.current[activeId]?.replaceSelectionWithMarkdown(`\n\n> **Suggested Edit:**\n> ${aiResult.split('\n').join('\n> ')}\n\n`);
         break;
     }
 
@@ -597,9 +676,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (showAiAssistant && provider === 'ollama') {
+    const anyOllama = Object.values(serviceConfigs).some(c => c.provider === 'ollama');
+    
+    if (anyOllama) {
       setOllamaStatus(prev => ({ ...prev, loading: true }));
-      checkOllamaConnection(selectedModel).then(res => {
+      // Use any model to ping connection
+      const activeOllamaModel = Object.values(serviceConfigs).find(c => c.provider === 'ollama')?.model || 'mistral';
+      checkOllamaConnection(activeOllamaModel).then(res => {
         setOllamaStatus({
           loading: false,
           connected: res.success,
@@ -608,23 +691,16 @@ export default function App() {
         });
         if (res.allModels) {
           setAvailableModels(res.allModels);
-          if (res.model && res.model !== selectedModel) {
-            setSelectedModel(res.model);
-          }
         }
       });
-    } else if (showAiAssistant && provider !== 'ollama') {
-      // For OpenAI/Anthropic, we don't check connection same way
-      setOllamaStatus({
+    } else {
+       setOllamaStatus({
         loading: false,
-        connected: true, // Assume connected if key is present
-        model: selectedModel,
+        connected: false,
+        model: ''
       });
-
-      if (provider === 'openai') setAvailableModels(['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']);
-      if (provider === 'anthropic') setAvailableModels(['claude-3-5-sonnet-20240620', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']);
     }
-  }, [showAiAssistant, selectedModel, provider]);
+  }, [serviceConfigs]);
 
   const toolbarButtons = [
     { icon: Heading1, label: 'Heading 1', action: () => editorRef.current?.handleFormat('h1') },
@@ -644,7 +720,8 @@ export default function App() {
         } else {
           const url = window.prompt("Enter Image URL:");
           if (url) {
-            editorRef.current?.insertImage(url, "Image Alternative Text");
+            const lastId = activePageIds[activePageIds.length - 1];
+            editorRefs.current[lastId]?.insertImage(url, "Image Alternative Text");
           }
         }
       }
@@ -781,16 +858,6 @@ export default function App() {
                     <Save className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => setAiSettings(!showAiSettings)}
-                    className={cn(
-                      "p-2 rounded-full transition-all",
-                      showAiSettings ? "bg-minimal-accent/10 text-minimal-accent" : "hover:bg-minimal-border text-minimal-muted"
-                    )}
-                    title="AI Settings"
-                  >
-                    <Settings className="w-4 h-4" />
-                  </button>
-                  <button
                     onClick={() => setAiAssistant(false)}
                     className="p-2 hover:bg-minimal-border rounded-full transition-colors"
                   >
@@ -800,131 +867,6 @@ export default function App() {
               </div>
 
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                <AnimatePresence>
-                  {showAiSettings && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden border-b border-minimal-border bg-minimal-bg"
-                    >
-                      <div className="p-4 space-y-4">
-                        {/* Provider Selection */}
-                        <div className="space-y-2">
-                          <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">AI Provider</h3>
-                          <div className="grid grid-cols-3 gap-2">
-                            {(['ollama', 'openai', 'anthropic'] as const).map(p => (
-                              <button
-                                key={p}
-                                onClick={() => {
-                                  setProvider(p);
-                                  if (p === 'openai') setSelectedModel('gpt-4o');
-                                  if (p === 'anthropic') setSelectedModel('claude-3-5-sonnet-20240620');
-                                  if (p === 'ollama') setSelectedModel('mistral');
-                                }}
-                                className={cn(
-                                  "py-2 px-1 rounded-xl border text-[9px] font-bold uppercase transition-all",
-                                  provider === p
-                                    ? "bg-minimal-accent border-minimal-accent text-white shadow-lg shadow-minimal-accent/20"
-                                    : "bg-minimal-sidebar border-minimal-border text-minimal-muted hover:border-minimal-accent/30"
-                                )}
-                              >
-                                {p}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Provider Specific Settings */}
-                        {provider === 'ollama' && (
-                          <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                            <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">Ollama Host (Proxy)</h3>
-                            <input
-                              type="text"
-                              value={providerConfigs.ollama.host || '/api/ai'}
-                              onChange={(e) => setOllamaHost(e.target.value)}
-                              placeholder="/api/ai"
-                              className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-medium text-minimal-text outline-none focus:border-minimal-accent transition-all"
-                            />
-                          </div>
-                        )}
-
-                        {provider === 'openai' && (
-                          <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                            <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">OpenAI API Key</h3>
-                            <input
-                              type="password"
-                              value={apiKeys.openai}
-                              onChange={(e) => setApiKey('openai', e.target.value)}
-                              placeholder="sk-..."
-                              className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-medium text-minimal-text outline-none focus:border-minimal-accent transition-all"
-                            />
-                          </div>
-                        )}
-
-                        {provider === 'anthropic' && (
-                          <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                            <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">Anthropic API Key</h3>
-                            <input
-                              type="password"
-                              value={apiKeys.anthropic}
-                              onChange={(e) => setApiKey('anthropic', e.target.value)}
-                              placeholder="x-api-key..."
-                              className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-medium text-minimal-text outline-none focus:border-minimal-accent transition-all"
-                            />
-                          </div>
-                        )}
-
-                        {/* Model Selection */}
-                        <div className="space-y-2">
-                          <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">AI Model Selection</h3>
-                          <div className="relative group/model">
-                            <select
-                              value={selectedModel}
-                              onChange={(e) => setSelectedModel(e.target.value)}
-                              className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-bold text-minimal-text outline-none focus:border-minimal-accent appearance-none cursor-pointer group-hover/model:border-minimal-accent/50 transition-all uppercase tracking-wide px-4"
-                            >
-                              {availableModels.length > 0 ? (
-                                availableModels.map(model => (
-                                  <option key={model} value={model}>{model}</option>
-                                ))
-                              ) : (
-                                <option value={selectedModel}>{selectedModel} (Loading...)</option>
-                              )}
-                            </select>
-                            <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-minimal-muted">
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2 border-t border-minimal-border/50">
-                          <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">Refinement Preferences</h3>
-                          <button
-                            onClick={() => setAiPersonalInstructions("")}
-                            className="text-[9px] font-bold text-minimal-muted hover:text-red-500 transition-colors uppercase"
-                          >
-                            Reset
-                          </button>
-                        </div>
-                        <div className="bg-minimal-accent/5 border border-minimal-accent/20 rounded-2xl p-4">
-                          <p className="text-[10px] text-minimal-accent font-bold mb-2 uppercase tracking-wide">Listening Profile</p>
-                          <textarea
-                            value={aiPersonalInstructions}
-                            onChange={(e) => setAiPersonalInstructions(e.target.value)}
-                            placeholder="Specify your style preferences (e.g., 'Formal tone', 'Short paragraphs')..."
-                            className="w-full h-24 bg-transparent border-none p-0 text-xs focus:ring-0 outline-none transition-all resize-none font-medium leading-relaxed text-minimal-text placeholder:text-minimal-muted/40"
-                          />
-                          <div className="mt-2 flex items-center gap-2 border-t border-minimal-accent/10 pt-2">
-                            <Check className="w-2.5 h-2.5 text-minimal-accent" />
-                            <span className="text-[9px] font-bold text-minimal-accent/70 uppercase">Applied to all generations</span>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8" ref={chatScrollRef}>
                   {chatHistory.length === 0 && (
                     <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-40 py-12">
@@ -1223,6 +1165,204 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* AI Provider Settings Sidebar */}
+      <AnimatePresence>
+        {showAiSettings && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAiSettings(false)}
+              className="fixed inset-0 bg-zinc-950/20 backdrop-blur-sm z-[60]"
+            />
+            <motion.div
+              initial={{ x: 400, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 400, opacity: 0 }}
+              className="fixed top-0 end-0 bottom-0 w-full md:w-[400px] bg-minimal-bg border-s border-minimal-border z-[70] shadow-2xl flex flex-col"
+            >
+              <div className="p-4 md:p-6 border-b border-minimal-border flex justify-between items-center bg-minimal-sidebar">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-minimal-accent flex items-center justify-center text-white shadow-lg">
+                    <Cpu className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-minimal-text uppercase tracking-widest leading-none">AI Provider Settings</h2>
+                    <p className="text-[9px] text-minimal-muted font-bold uppercase tracking-tight mt-1">Multi-service Engine Config</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAiSettings(false)}
+                  className="p-2 hover:bg-minimal-border rounded-full transition-colors"
+                >
+                  <X className="w-4 h-4 text-minimal-muted" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+                {/* Service Tabs */}
+                <div className="flex bg-minimal-sidebar rounded-xl p-1 gap-1">
+                  {(['chat', 'actions', 'semantic', 'embeddings'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setAiSettingsTab(tab)}
+                      className={cn(
+                        "flex-1 py-1.5 rounded-lg text-[9px] font-bold uppercase transition-all tracking-tight",
+                        aiSettingsTab === tab 
+                          ? "bg-minimal-bg text-minimal-accent shadow-sm"
+                          : "text-minimal-muted hover:text-minimal-text"
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Provider Selection for Active Tab */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">
+                      {aiSettingsTab.toUpperCase()} Provider
+                    </h3>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['ollama', 'openai', 'anthropic', 'google', 'pipeline'] as const).map(p => (
+                        <button
+                          key={p}
+                          onClick={() => {
+                            setServiceProvider(aiSettingsTab, p);
+                            // Auto-select a default model for the provider
+                            const defaultModel = STATIC_MODELS[p]?.[0] || (p === 'ollama' ? 'mistral' : '');
+                            if (defaultModel) setServiceModel(aiSettingsTab, defaultModel);
+                          }}
+                          className={cn(
+                            "py-2 px-1 rounded-xl border text-[9px] font-bold uppercase transition-all",
+                            serviceConfigs[aiSettingsTab].provider === p
+                              ? "bg-minimal-accent border-minimal-accent text-white shadow-lg shadow-minimal-accent/20"
+                              : "bg-minimal-sidebar border-minimal-border text-minimal-muted hover:border-minimal-accent/30"
+                          )}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Model Selection for Active Tab */}
+                  <div className="space-y-2">
+                    <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">
+                      {aiSettingsTab.toUpperCase()} Model
+                    </h3>
+                    <div className="relative group/model">
+                      <select
+                        value={serviceConfigs[aiSettingsTab].model}
+                        onChange={(e) => setServiceModel(aiSettingsTab, e.target.value)}
+                        className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-bold text-minimal-text outline-none focus:border-minimal-accent appearance-none cursor-pointer group-hover/model:border-minimal-accent/50 transition-all uppercase tracking-wide px-4"
+                      >
+                        {serviceConfigs[aiSettingsTab].provider === 'ollama' ? (
+                          availableModels.length > 0 ? (
+                            availableModels.map(model => (
+                              <option key={model} value={model}>{model}</option>
+                            ))
+                          ) : (
+                            <option value={serviceConfigs[aiSettingsTab].model}>{serviceConfigs[aiSettingsTab].model} (Loading...)</option>
+                          )
+                        ) : (
+                          STATIC_MODELS[serviceConfigs[aiSettingsTab].provider]?.map(model => (
+                            <option key={model} value={model}>{model}</option>
+                          ))
+                        )}
+                      </select>
+                      <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-minimal-muted">
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* API Keys (Global per provider, but shown here for context) */}
+                  <div className="pt-2">
+                    {serviceConfigs[aiSettingsTab].provider === 'ollama' && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">Ollama Host (Proxy)</h3>
+                        <input
+                          type="text"
+                          value={providerConfigs.ollama.host || '/api/ai'}
+                          onChange={(e) => setOllamaHost(e.target.value)}
+                          placeholder="/api/ai"
+                          className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-medium text-minimal-text outline-none focus:border-minimal-accent transition-all"
+                        />
+                      </div>
+                    )}
+
+                    {serviceConfigs[aiSettingsTab].provider === 'openai' && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">OpenAI API Key</h3>
+                        <input
+                          type="password"
+                          value={apiKeys.openai}
+                          onChange={(e) => setApiKey('openai', e.target.value)}
+                          placeholder="sk-..."
+                          className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-medium text-minimal-text outline-none focus:border-minimal-accent transition-all"
+                        />
+                      </div>
+                    )}
+
+                    {serviceConfigs[aiSettingsTab].provider === 'anthropic' && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">Anthropic API Key</h3>
+                        <input
+                          type="password"
+                          value={apiKeys.anthropic}
+                          onChange={(e) => setApiKey('anthropic', e.target.value)}
+                          placeholder="x-api-key..."
+                          className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-medium text-minimal-text outline-none focus:border-minimal-accent transition-all"
+                        />
+                      </div>
+                    )}
+
+                    {serviceConfigs[aiSettingsTab].provider === 'google' && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">Google Gemini API Key</h3>
+                        <input
+                          type="password"
+                          value={apiKeys.google}
+                          onChange={(e) => setApiKey('google', e.target.value)}
+                          placeholder="AIza..."
+                          className="w-full bg-minimal-sidebar border border-minimal-border rounded-xl p-3 text-xs font-medium text-minimal-text outline-none focus:border-minimal-accent transition-all"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-6 border-t border-minimal-border">
+                  <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-wider">Writer Identity</h3>
+                  <button
+                    onClick={() => setAiPersonalInstructions("")}
+                    className="text-[9px] font-bold text-minimal-muted hover:text-red-500 transition-colors uppercase"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="bg-minimal-accent/5 border border-minimal-accent/20 rounded-2xl p-4">
+                  <p className="text-[10px] text-minimal-accent font-bold mb-2 uppercase tracking-wide">Writing Voice Profile</p>
+                  <textarea
+                    value={aiPersonalInstructions}
+                    onChange={(e) => setAiPersonalInstructions(e.target.value)}
+                    placeholder="Specify your style preferences (e.g., 'Formal tone', 'Short paragraphs')..."
+                    className="w-full h-32 bg-transparent border-none p-0 text-xs focus:ring-0 outline-none transition-all resize-none font-medium leading-relaxed text-minimal-text placeholder:text-minimal-muted/40"
+                  />
+                  <div className="mt-2 flex items-center gap-2 border-t border-minimal-accent/10 pt-2">
+                    <div className="w-2 h-2 rounded-full bg-minimal-accent animate-pulse" />
+                    <span className="text-[9px] font-bold text-minimal-accent/70 uppercase">Global Style Overlay Active</span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Floating AI Review Panel */}
       <AnimatePresence>
         {aiResult && (
@@ -1293,9 +1433,105 @@ export default function App() {
       </AnimatePresence>
 
       <main className={cn(
-        "flex-1 flex overflow-hidden bg-minimal-sidebar transition-all duration-1000",
+        "flex-1 flex relative overflow-hidden bg-minimal-sidebar transition-all duration-1000",
         "pt-0"
       )}>
+        <div className="flex-1 flex overflow-x-auto snap-x snap-mandatory flex gap-8 p-8 md:p-12 custom-scrollbar bg-minimal-sidebar/50">
+          {activePageIds.map(id => {
+            const page = pages.find(p => p.id === id);
+            if (!page) return null;
+            return (
+              <div 
+                key={id}
+                className="flex-shrink-0 w-full max-w-[850px] h-full bg-minimal-bg shadow-[0_32px_64px_-12px_rgba(0,0,0,0.1)] rounded-xl border border-minimal-border flex flex-col snap-center relative group mx-4 first:ml-auto last:mr-auto"
+              >
+                <div className="px-6 py-3 border-b border-minimal-border flex items-center justify-between bg-minimal-sidebar/30 rounded-t-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-lg bg-minimal-accent text-white flex items-center justify-center text-[10px] font-bold">
+                      {pages.indexOf(page) + 1}
+                    </div>
+                    <span className="text-[10px] font-bold text-minimal-muted uppercase tracking-widest">{page.title}</span>
+                  </div>
+                  <button 
+                    onClick={() => togglePageOpen(id)}
+                    className="p-1 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex-1 flex flex-col min-h-0">
+                  <ProseMirrorEditor
+                    ref={el => { editorRefs.current[id] = el; }}
+                    value={page.content}
+                    onChange={(c) => setPageContent(id, c)}
+                    onKeyDown={handleKeyDown}
+                    isTypewriter={isTypewriter}
+                    isFocusMode={isFocusMode}
+                    onToggleFocusMode={toggleFocusMode}
+                    direction={direction}
+                    personalInstructions={aiPersonalInstructions}
+                    selectedModel={serviceConfigs.actions.model}
+                    provider={serviceConfigs.actions.provider}
+                    apiKeys={apiKeys}
+                    providerConfigs={providerConfigs}
+                    onAiResult={(result) => {
+                      setAiResult(result);
+                      setAiAssistant(true);
+                    }}
+                    onAiStream={(chunk) => {
+                      setAiResult(prev => (prev || '') + chunk);
+                      setAiAssistant(true);
+                    }}
+                    onSearchMetadata={(count, current) => {
+                      if (isSemantic) {
+                        setMatchCount(count);
+                      }
+                    }}
+                    onImageUploadRequest={() => {
+                      const choice = window.confirm("Click OK to Upload an image, or Cancel to provide a URL.");
+                      if (choice) {
+                        fileInputRef.current?.click();
+                      } else {
+                        const url = window.prompt("Enter Image URL:");
+                        if (url) {
+                          editorRefs.current[id]?.insertImage(url, "Image Alternative Text");
+                        }
+                      }
+                    }}
+                    searchQuery={showSearch ? findText : ''}
+                    searchOptions={{ 
+                      isCaseSensitive, 
+                      isWholeWord, 
+                      isSemantic, 
+                      searchIndex, 
+                      currentMatchIndex,
+                      embeddingOptions: { 
+                        provider: serviceConfigs.embeddings.provider, 
+                        apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
+                        model: serviceConfigs.embeddings.model 
+                      }
+                    }}
+                    collab={{
+                      enabled: true,
+                      docId: `local-document-${id}`,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          
+          <button 
+            onClick={() => addPage('New Chapter')}
+            className="flex-shrink-0 w-64 h-full border-2 border-dashed border-minimal-border rounded-xl flex flex-col items-center justify-center gap-3 text-minimal-muted hover:border-minimal-accent/40 hover:text-minimal-accent hover:bg-minimal-sidebar transition-all group"
+          >
+            <div className="p-4 bg-minimal-sidebar rounded-full group-hover:rotate-180 transition-transform duration-500">
+              <Plus className="w-6 h-6" />
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-widest">New Chapter</span>
+          </button>
+        </div>
+
         {!isMobile && (
           <div className="fixed top-8 right-8 z-50 flex flex-col gap-3">
             {/* Assistant Toggle */}
@@ -1311,6 +1547,36 @@ export default function App() {
               title="AI Assistant"
             >
               <Sparkles className="w-5 h-5" />
+            </motion.button>
+
+            {/* Pages Toggle */}
+            <motion.button
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 0.5, x: 0 }}
+              whileHover={{ opacity: 1, scale: 1.05 }}
+              onClick={() => setPagesMenu(!showPages)}
+              className={cn(
+                "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
+                showPages ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
+              )}
+              title="Pages Manager"
+            >
+              <FileText className="w-5 h-5" />
+            </motion.button>
+
+            {/* AI Provider Settings Toggle */}
+            <motion.button
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 0.5, x: 0 }}
+              whileHover={{ opacity: 1, scale: 1.05 }}
+              onClick={() => setAiSettings(!showAiSettings)}
+              className={cn(
+                "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
+                showAiSettings ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
+              )}
+              title="AI Provider Settings"
+            >
+              <Cpu className="w-5 h-5" />
             </motion.button>
 
             {/* Search Toggle */}
@@ -1330,6 +1596,23 @@ export default function App() {
 
             <div className="h-px bg-minimal-border/30 mx-3 my-1" />
 
+            <div className="h-px bg-minimal-border/30 mx-3 my-1" />
+
+            {/* Semantic Folders toggle */}
+            <motion.button
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 0.5, x: 0 }}
+              whileHover={{ opacity: 1, scale: 1.05 }}
+              onClick={() => setSemanticFolders(!showSemanticFolders)}
+              className={cn(
+                "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
+                showSemanticFolders ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
+              )}
+              title="Semantic Folders"
+            >
+              <FolderRoot className="w-5 h-5" />
+            </motion.button>
+
             {/* Typewriter toggle */}
             <motion.button
               initial={{ opacity: 0, x: 20 }}
@@ -1343,6 +1626,21 @@ export default function App() {
               title="Typewriter Mode"
             >
               <Type className="w-5 h-5" />
+            </motion.button>
+
+            {/* Focus Mode toggle */}
+            <motion.button
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 0.5, x: 0 }}
+              whileHover={{ opacity: 1, scale: 1.05 }}
+              onClick={() => toggleFocusMode()}
+              className={cn(
+                "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
+                isFocusMode ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
+              )}
+              title="Paragraph Focus Mode"
+            >
+              <FocusOn className="w-5 h-5" />
             </motion.button>
 
             {/* Orientation toggle */}
@@ -1550,19 +1848,15 @@ export default function App() {
             </div>
           </div>
         )}
-        <div className={cn(
-          "flex-1 relative flex flex-col transition-all duration-1000 ease-[cubic-bezier(0.23,1,0.32,1)]",
-          "max-w-4xl mx-auto border-minimal-border",
-          "bg-minimal-bg border-s border-e shadow-none"
-        )}>
-          {/* Find and Replace Bar */}
-          <AnimatePresence>
+
+        {/* Find and Replace Bar */}
+        <AnimatePresence>
             {showSearch && (
               <motion.div
                 initial={{ y: -20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -20, opacity: 0 }}
-                className="absolute top-4 right-8 z-30 bg-minimal-bg border border-minimal-border rounded-xl shadow-xl p-3 flex flex-col gap-2 w-[360px]"
+                className="fixed top-8 left-1/2 -translate-x-1/2 z-[110] bg-minimal-bg border border-minimal-border rounded-xl shadow-2xl p-3 flex flex-col gap-2 w-[420px] max-w-[95vw]"
               >
                 <div className="flex items-center gap-2">
                   <div className="flex-1 bg-minimal-sidebar rounded-lg flex items-center px-3 border border-minimal-border focus-within:border-minimal-accent transition-colors">
@@ -1681,53 +1975,93 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <ProseMirrorEditor
-            ref={editorRef}
-            value={markdown}
-            onChange={setMarkdown}
-            onKeyDown={handleKeyDown}
-            isTypewriter={isTypewriter}
-            direction={direction}
-            personalInstructions={aiPersonalInstructions}
-            selectedModel={selectedModel}
-            provider={provider}
-            apiKeys={apiKeys}
-            providerConfigs={providerConfigs}
-            onAiResult={(result) => {
-              setAiResult(result);
-              setAiAssistant(true);
-            }}
-            onAiStream={(chunk) => {
-              setAiResult(prev => (prev || '') + chunk);
-              setAiAssistant(true);
-            }}
-            onSearchMetadata={(count, current) => {
-              if (isSemantic) {
-                setMatchCount(count);
-                // current is already synced since App controls currentMatchIndex for semantic
-              }
-            }}
-            onImageUploadRequest={() => {
-              const choice = window.confirm("Click OK to Upload an image, or Cancel to provide a URL.");
-              if (choice) {
-                fileInputRef.current?.click();
-              } else {
-                const url = window.prompt("Enter Image URL:");
-                if (url) {
-                  editorRef.current?.insertImage(url, "Image Alternative Text");
-                }
-              }
-            }}
-            searchQuery={showSearch ? findText : ''}
-            searchOptions={{ isCaseSensitive, isWholeWord, isSemantic, searchIndex, currentMatchIndex }}
-            collab={{
-              enabled: true,
-              docId: 'local-document',
-              username: 'Writer'
-            }}
-            className="flex-1 overflow-y-auto"
-          />
-        </div>
+          {/* Semantic Folders Sidebar */}
+          <AnimatePresence>
+            {showSemanticFolders && (
+              <motion.div
+                initial={{ x: 300, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 300, opacity: 0 }}
+                className="absolute right-0 top-0 bottom-0 z-[100] w-[320px] shadow-2xl"
+              >
+                <div className="h-full relative">
+                   <button 
+                    onClick={() => setSemanticFolders(false)}
+                    className="absolute top-4 -left-12 p-2 bg-minimal-bg border border-minimal-border rounded-full hover:text-red-500 transition-colors shadow-lg z-[110]"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <SemanticFolders onJump={(text) => {
+                    const lastId = activePageIds[activePageIds.length - 1];
+                    editorRefs.current[lastId]?.scrollToText(text);
+                  }} />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Pages Manager Sidebar */}
+          <AnimatePresence>
+            {showPages && (
+              <motion.div
+                initial={{ x: 300, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 300, opacity: 0 }}
+                className="absolute right-0 top-0 bottom-0 z-[100] w-[320px] shadow-2xl bg-minimal-sidebar border-l border-minimal-border"
+              >
+                <div className="h-full flex flex-col p-6 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-minimal-text uppercase tracking-widest">Chapters & Pages</h3>
+                    <button onClick={() => setPagesMenu(false)} className="p-2 hover:bg-minimal-border rounded-full">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  
+                  <button 
+                    onClick={() => addPage('New Chapter')}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-minimal-accent text-white rounded-2xl text-[10px] font-bold shadow-lg shadow-minimal-accent/20 hover:scale-[1.02] active:scale-95 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>ADD CHAPTER</span>
+                  </button>
+
+                  <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
+                    {pages.map(page => (
+                      <div 
+                        key={page.id}
+                        className={cn(
+                          "group flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer",
+                          activePageIds.includes(page.id) 
+                            ? "bg-minimal-accent/5 border-minimal-accent/20" 
+                            : "bg-minimal-bg border-minimal-border hover:border-minimal-accent/30"
+                        )}
+                        onClick={() => togglePageOpen(page.id)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-bold",
+                            activePageIds.includes(page.id) ? "bg-minimal-accent text-white" : "bg-minimal-sidebar text-minimal-muted"
+                          )}>
+                            {pages.indexOf(page) + 1}
+                          </div>
+                          <div>
+                            <p className="text-[11px] font-bold text-minimal-text">{page.title}</p>
+                            <p className="text-[9px] text-minimal-muted uppercase tracking-tight">{page.content.split(/\s+/).filter(Boolean).length} words</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); removePage(page.id); }}
+                          className="p-1.5 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
       </main>
 
       {/* Mobile Toolbar Bottom Sheet */}
@@ -2123,6 +2457,14 @@ export default function App() {
                 <span>MD</span>
               </div>
             </div>
+
+            {/* Auto-save Indicator */}
+            {lastSaved && (
+              <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded bg-minimal-sidebar/50 border border-minimal-border text-[9px] font-bold text-minimal-muted/70 tracking-widest transition-all">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60 animate-pulse" />
+                <span>SAVED {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+            )}
           </div>
         </motion.footer>
       </AnimatePresence>

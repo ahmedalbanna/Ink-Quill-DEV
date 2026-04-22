@@ -8,9 +8,12 @@ export class RagService {
   private queryCache = new Map<string, number[]>();
   private readonly CACHE_LIMIT = 20;
 
-  async indexDocument(content: string) {
+  async indexDocument(content: string, options?: { provider?: string; apiKey?: string; model?: string }) {
     if (content === this.lastIndexedContent || this.isIndexing) return;
-    if (!embeddingService.isReady()) return;
+    
+    // Only wait for local model if we are using pipeline
+    const provider = options?.provider || 'pipeline';
+    if (provider === 'pipeline' && !embeddingService.isReady()) return;
     
     this.isIndexing = true;
     useUIStore.getState().setIndexing(true);
@@ -18,7 +21,6 @@ export class RagService {
       console.log('Indexing document for RAG...');
       const texts = this.chunkContent(content);
       
-      // Calculate hashes for all current chunks
       const chunksWithHashes = texts.map(text => ({
         text,
         hash: this.simpleHash(text)
@@ -35,8 +37,8 @@ export class RagService {
         if (existing) {
           updatedChunks.push(existing);
         } else {
-          // Generate new embedding
-          const embedding = await embeddingService.generateEmbedding(item.text);
+          // Generate new embedding using provided options
+          const embedding = await embeddingService.generateEmbedding(item.text, options);
           updatedChunks.push({
             text: item.text,
             embedding,
@@ -122,11 +124,11 @@ export class RagService {
     return text.substring(0, maxTokens * 4) + "... [truncated]";
   }
 
-  async getCachedEmbedding(query: string): Promise<number[]> {
+  async getCachedEmbedding(query: string, options?: { provider?: string; apiKey?: string; model?: string }): Promise<number[]> {
     if (this.queryCache.has(query)) {
       return this.queryCache.get(query)!;
     }
-    const embedding = await embeddingService.generateEmbedding(query);
+    const embedding = await embeddingService.generateEmbedding(query, options);
     this.queryCache.set(query, embedding);
     if (this.queryCache.size > this.CACHE_LIMIT) {
       const firstKey = this.queryCache.keys().next().value;
@@ -135,7 +137,7 @@ export class RagService {
     return embedding;
   }
 
-  async indexConversation(id: string, name: string, messages: ChatMessage[]) {
+  async indexConversation(id: string, name: string, messages: ChatMessage[], options?: { provider?: string; apiKey?: string; model?: string }) {
     try {
       useUIStore.getState().setIndexing(true);
       // Summarize conversation into text
@@ -150,7 +152,7 @@ export class RagService {
         return; // Already up to date
       }
 
-      const embedding = await embeddingService.generateEmbedding(this.trimToTokens(text, 1000));
+      const embedding = await embeddingService.generateEmbedding(this.trimToTokens(text, 1000), options);
       const chunk: Chunk = {
         id,
         text: this.trimToTokens(text, 1000), // Keep it within bounds
@@ -175,21 +177,23 @@ export class RagService {
     }
   }
 
-  async getRelevantEpisodes(query: string, limit = 3): Promise<string> {
-    if (!embeddingService.isReady()) return '';
-    const queryEmbedding = await this.getCachedEmbedding(query);
+  async getRelevantEpisodes(query: string, limit = 3, options?: { provider?: string; apiKey?: string; model?: string }): Promise<string> {
+    const provider = options?.provider || 'pipeline';
+    if (provider === 'pipeline' && !embeddingService.isReady()) return '';
+    const queryEmbedding = await this.getCachedEmbedding(query, options);
     const results = vectorStore.searchEpisodes(queryEmbedding, limit, 0.3);
     
     if (results.length === 0) return '';
     return results.map(res => res.text).join('\n\n---\n\n');
   }
 
-  async getRelevantContext(query: string, limit = 5): Promise<string> {
-    return this.getWeightedContext([{ text: query, weight: 1.0 }], limit);
+  async getRelevantContext(query: string, limit = 5, options?: { provider?: string; apiKey?: string; model?: string }): Promise<string> {
+    return this.getWeightedContext([{ text: query, weight: 1.0 }], limit, options);
   }
 
-  async getWeightedContext(queries: { text: string; weight: number }[], limit = 5): Promise<string> {
-    if (!embeddingService.isReady()) return '';
+  async getWeightedContext(queries: { text: string; weight: number }[], limit = 5, options?: { provider?: string; apiKey?: string; model?: string }): Promise<string> {
+    const provider = options?.provider || 'pipeline';
+    if (provider === 'pipeline' && !embeddingService.isReady()) return '';
     
     // We'll perform searches for each query and aggregate results with weights
     const resultsMap = new Map<string, { chunk: Chunk; score: number }>();
@@ -198,7 +202,7 @@ export class RagService {
       if (!text || !text.trim()) continue;
       
       try {
-        const queryEmbedding = await this.getCachedEmbedding(text);
+        const queryEmbedding = await this.getCachedEmbedding(text, options);
         // Search more than we need so we can aggregate and re-rank
         const results = vectorStore.searchWithScores(queryEmbedding, limit * 3, 0.2);
         
@@ -227,10 +231,11 @@ export class RagService {
     return sorted.map((s, i) => `[RELEVANT CLIP ${i + 1}]\n${s.chunk.text}`).join('\n\n---\n\n');
   }
 
-  async searchDetailed(query: string, limit = 5, threshold = 0.2): Promise<{ text: string; score: number }[]> {
-    if (!embeddingService.isReady()) return [];
+  async searchDetailed(query: string, limit = 5, threshold = 0.2, options?: { provider?: string; apiKey?: string; model?: string }): Promise<{ text: string; score: number }[]> {
+    const provider = options?.provider || 'pipeline';
+    if (provider === 'pipeline' && !embeddingService.isReady()) return [];
     try {
-      const queryEmbedding = await this.getCachedEmbedding(query);
+      const queryEmbedding = await this.getCachedEmbedding(query, options);
       const results = vectorStore.searchWithScores(queryEmbedding, limit, threshold);
       return results.map(r => ({ text: r.chunk.text, score: r.score }));
     } catch (e) {

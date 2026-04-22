@@ -1,3 +1,4 @@
+import { GoogleGenAI } from "@google/genai";
 import { ragService } from './ragService';
 
 export type AIAssistantAction = 'improve' | 'fix-grammar' | 'shorten' | 'expand' | 'generate-outline' | 'expand-outline' | 'summarize' | 'suggest-title' | 'draft-topic' | 'rewrite' | 'complete-text';
@@ -11,6 +12,82 @@ export interface ChatMessage {
 export interface AIProvider {
   chat(messages: any[], model: string, onChunk?: (chunk: string) => void): Promise<string>;
   generate(prompt: string, system: string, model: string, onChunk?: (chunk: string) => void): Promise<string>;
+}
+
+export class GoogleProvider implements AIProvider {
+  private ai: GoogleGenAI;
+  
+  constructor(apiKey: string) {
+    this.ai = new GoogleGenAI({ apiKey: apiKey || process.env.GEMINI_API_KEY || '' });
+  }
+
+  async chat(messages: any[], model: string, onChunk?: (chunk: string) => void): Promise<string> {
+    const formattedMessages = messages.map(m => ({
+      role: m.role === 'system' ? 'user' : m.role, // Google uses user/model
+      parts: Array.isArray(m.parts) ? m.parts : [{ text: m.content || m.parts || '' }]
+    }));
+
+    if (onChunk) {
+      const response = await this.ai.models.generateContentStream({
+        model: model || 'gemini-3-flash-preview',
+        contents: formattedMessages,
+      });
+
+      let fullText = "";
+      for await (const chunk of response) {
+        const text = chunk.text || "";
+        fullText += text;
+        onChunk(text);
+      }
+      return fullText;
+    } else {
+      const result = await this.ai.models.generateContent({
+        model: model || 'gemini-3-flash-preview',
+        contents: formattedMessages,
+      });
+      return result.text || "";
+    }
+  }
+
+  async generate(prompt: string, system: string, model: string, onChunk?: (chunk: string) => void): Promise<string> {
+    const contents = [
+      { role: 'user', parts: [{ text: `${system}\n\n${prompt}` }] }
+    ];
+
+    if (onChunk) {
+      const response = await this.ai.models.generateContentStream({
+        model: model || 'gemini-3-flash-preview',
+        contents,
+      });
+
+      let fullText = "";
+      for await (const chunk of response) {
+        const text = chunk.text || "";
+        fullText += text;
+        onChunk(text);
+      }
+      return fullText;
+    } else {
+      const result = await this.ai.models.generateContent({
+        model: model || 'gemini-3-flash-preview',
+        contents,
+      });
+      return result.text || "";
+    }
+  }
+}
+
+export class PipelineProvider implements AIProvider {
+  async chat(): Promise<string> {
+    return "Local chat is not yet supported in pipeline mode. Please switch to an API provider (Google, OpenAI, Anthropic, or Ollama) in settings.";
+  }
+  async generate(prompt: string): Promise<string> {
+    // If it's a cluster labeling request, provide a simple generic response
+    if (prompt.includes("concise folder name") && prompt.includes("JSON")) {
+      return '{ "name": "Semantic Group", "summary": "Automatically grouped by similarity." }';
+    }
+    return "Local text generation is not yet supported in pipeline mode. Please switch to an API provider in settings.";
+  }
 }
 
 export class OllamaProvider implements AIProvider {
@@ -245,10 +322,12 @@ export class AnthropicProvider implements AIProvider {
   }
 }
 
-export const getProvider = (type: 'ollama' | 'openai' | 'anthropic', config: any): AIProvider => {
+export const getProvider = (type: string, config: any): AIProvider => {
   switch (type) {
     case 'openai': return new OpenAIProvider(config.apiKeys.openai);
     case 'anthropic': return new AnthropicProvider(config.apiKeys.anthropic);
+    case 'google': return new GoogleProvider(config.apiKeys.google);
+    case 'pipeline': return new PipelineProvider();
     default: return new OllamaProvider(config.providerConfigs.ollama.host);
   }
 };
@@ -259,7 +338,7 @@ export const processAIAction = async (
   options: {
     personalInstructions?: string;
     model?: string;
-    provider?: 'ollama' | 'openai' | 'anthropic';
+    provider?: string;
     apiKeys?: any;
     providerConfigs?: any;
     onChunk?: (chunk: string) => void;
@@ -357,7 +436,7 @@ export const generateContentFromPrompt = async (
   options: {
     personalInstructions?: string;
     model?: string;
-    provider?: 'ollama' | 'openai' | 'anthropic';
+    provider?: string;
     apiKeys?: any;
     providerConfigs?: any;
     onChunk?: (chunk: string) => void;
@@ -387,14 +466,15 @@ export const chatWithAI = async (
   options: {
     personalInstructions?: string;
     model?: string;
-    provider?: 'ollama' | 'openai' | 'anthropic';
+    provider?: string;
     apiKeys?: any;
     providerConfigs?: any;
     onChunk?: (chunk: string) => void;
     cursorContext?: string;
+    embeddingOptions?: { provider?: string; apiKey?: string; model?: string };
   }
 ): Promise<string> => {
-  const { personalInstructions = "", model = 'mistral', provider = 'ollama', apiKeys, providerConfigs, onChunk, cursorContext = "" } = options;
+  const { personalInstructions = "", model = 'mistral', provider = 'ollama', apiKeys, providerConfigs, onChunk, cursorContext = "", embeddingOptions } = options;
   
   let systemInstruction = "You are a helpful AI writing partner in Ink & Quill. You help users refine their documents through conversation.";
   if (personalInstructions) {
@@ -410,16 +490,19 @@ export const chatWithAI = async (
     .join(' ');
   
   // 1. Fetch contexts with refined weighting
+  // Use passed embeddingOptions if available, otherwise fallback to chat provider (though better to pass)
+  const activeEmbeddingOptions = embeddingOptions || { provider, apiKey: apiKeys?.[provider as keyof typeof apiKeys], model: provider === 'google' ? 'text-embedding-004' : undefined };
+
   // Weights: Current Query (1.0), Current Cursor Area (0.8), Recent Conversation Theme (0.5)
   const weightedContext = await ragService.getWeightedContext([
     { text: lastUserMessage, weight: 1.0 },
     { text: cursorContext, weight: 0.8 },
     { text: recentChatContext, weight: 0.5 }
-  ]);
+  ], 5, activeEmbeddingOptions);
   
   const globalSummary = await ragService.getGlobalSummary(documentContext);
   const cursorSection = await ragService.getCursorSectionInfo(documentContext, cursorContext);
-  const relevantEpisodes = await ragService.getRelevantEpisodes(lastUserMessage);
+  const relevantEpisodes = await ragService.getRelevantEpisodes(lastUserMessage, 3, activeEmbeddingOptions);
   
   // Token budget estimation (rough: 4 chars per token)
   const MAX_TOKENS = 4000;

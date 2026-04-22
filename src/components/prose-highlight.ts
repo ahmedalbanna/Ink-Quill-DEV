@@ -59,6 +59,9 @@ function getDecorations(doc: any) {
     }
   });
 
+  // Sort decorations by start position as required by DecorationSet.create
+  decorations.sort((a, b) => a.from - b.from);
+
   return DecorationSet.create(doc, decorations);
 }
 

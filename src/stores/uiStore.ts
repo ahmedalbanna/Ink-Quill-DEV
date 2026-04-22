@@ -10,22 +10,29 @@ interface UIState {
   showSettings: boolean;
   showAiSettings: boolean;
   showSavedConversations: boolean;
+  showSemanticFolders: boolean;
+  showPages: boolean;
   direction: 'ltr' | 'rtl';
+  isFocusMode: boolean;
   isIndexing: boolean;
   indexedChunks: number;
   indexedEpisodes: number;
   
   toggleTypewriter: () => void;
   toggleSuperZen: () => void;
+  toggleFocusMode: () => void;
   toggleAIAssistant: () => void;
   setTypewriter: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSuperZen: (show: boolean | ((prev: boolean) => boolean)) => void;
+  setFocusMode: (show: boolean | ((prev: boolean) => boolean)) => void;
   setAIAssistant: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSearch: (show: boolean | ((prev: boolean) => boolean)) => void;
   setMobileMenu: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSettings: (show: boolean | ((prev: boolean) => boolean)) => void;
   setAiSettings: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSavedConversations: (show: boolean | ((prev: boolean) => boolean)) => void;
+  setSemanticFolders: (show: boolean | ((prev: boolean) => boolean)) => void;
+  setPagesMenu: (show: boolean | ((prev: boolean) => boolean)) => void;
   setDirection: (direction: 'ltr' | 'rtl' | ((prev: 'ltr' | 'rtl') => 'ltr' | 'rtl')) => void;
   setIndexing: (indexing: boolean) => void;
   setIndexedCounts: (chunks: number, episodes: number) => void;
@@ -42,19 +49,26 @@ export const useUIStore = create<UIState>()(
       showSettings: false,
       showAiSettings: false,
       showSavedConversations: false,
+      showSemanticFolders: false,
+      showPages: false,
       direction: 'ltr',
+      isFocusMode: false,
       isIndexing: false,
       indexedChunks: 0,
       indexedEpisodes: 0,
 
       toggleTypewriter: () => set((state) => ({ isTypewriter: !state.isTypewriter })),
       toggleSuperZen: () => set((state) => ({ isSuperZen: !state.isSuperZen })),
+      toggleFocusMode: () => set((state) => ({ isFocusMode: !state.isFocusMode })),
       toggleAIAssistant: () => set((state) => ({ showAIAssistant: !state.showAIAssistant })),
       setTypewriter: (isTypewriter) => set((state) => ({ 
         isTypewriter: typeof isTypewriter === 'function' ? isTypewriter(state.isTypewriter) : isTypewriter 
       })),
       setSuperZen: (isSuperZen) => set((state) => ({ 
         isSuperZen: typeof isSuperZen === 'function' ? isSuperZen(state.isSuperZen) : isSuperZen 
+      })),
+      setFocusMode: (isFocusMode) => set((state) => ({ 
+        isFocusMode: typeof isFocusMode === 'function' ? isFocusMode(state.isFocusMode) : isFocusMode 
       })),
       setAIAssistant: (showAIAssistant) => set((state) => ({ 
         showAIAssistant: typeof showAIAssistant === 'function' ? showAIAssistant(state.showAIAssistant) : showAIAssistant 
@@ -73,6 +87,12 @@ export const useUIStore = create<UIState>()(
       })),
       setSavedConversations: (showSavedConversations) => set((state) => ({ 
         showSavedConversations: typeof showSavedConversations === 'function' ? showSavedConversations(state.showSavedConversations) : showSavedConversations 
+      })),
+      setSemanticFolders: (showSemanticFolders) => set((state) => ({ 
+        showSemanticFolders: typeof showSemanticFolders === 'function' ? showSemanticFolders(state.showSemanticFolders) : showSemanticFolders 
+      })),
+      setPagesMenu: (showPages) => set((state) => ({ 
+        showPages: typeof showPages === 'function' ? showPages(state.showPages) : showPages 
       })),
       setDirection: (direction) => set((state) => ({ 
         direction: typeof direction === 'function' ? direction(state.direction) : direction 

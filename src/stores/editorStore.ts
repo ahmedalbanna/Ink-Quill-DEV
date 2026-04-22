@@ -1,38 +1,67 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { snapshotService, type Snapshot } from '../services/snapshotService';
+import type { SemanticCluster } from '../services/semanticService';
+
+interface Page {
+  id: string;
+  title: string;
+  content: string;
+}
 
 interface EditorState {
-  content: string;
+  pages: Page[];
+  activePageIds: string[]; // Pages currently visible/open horizontally
   cursor: { from: number; to: number } | null;
-  history: { past: string[]; future: string[] };
   snapshots: Snapshot[];
+  semanticClusters: SemanticCluster[];
   wordGoal: number;
   
-  setContent: (content: string | ((prev: string) => string)) => void;
+  setPageContent: (id: string, content: string) => void;
+  addPage: (title?: string, content?: string) => void;
+  removePage: (id: string) => void;
+  togglePageOpen: (id: string) => void;
   setCursor: (cursor: { from: number; to: number } | null) => void;
+  setSemanticClusters: (clusters: SemanticCluster[]) => void;
   addSnapshot: (content: string, userNote?: string) => Promise<void>;
   loadSnapshots: () => Promise<void>;
   setWordGoal: (goal: number | ((prev: number) => number)) => void;
   clearSnapshots: () => Promise<void>;
   setSnapshots: (snapshots: Snapshot[] | ((prev: Snapshot[]) => Snapshot[])) => void;
-  undo: () => void;
-  redo: () => void;
 }
 
 export const useEditorStore = create<EditorState>()(
   persist(
     (set) => ({
-      content: '# Welcome to Ink & Quill\n\nStart writing...',
+      pages: [{ id: 'default', title: 'Chapter 1', content: '# Welcome to Ink & Quill\n\nStart writing...' }],
+      activePageIds: ['default'],
       cursor: null,
-      history: { past: [], future: [] },
       snapshots: [],
+      semanticClusters: [],
       wordGoal: 0,
       
-      setContent: (content) => set((state) => ({ 
-        content: typeof content === 'function' ? content(state.content) : content 
+      setPageContent: (id, content) => set((state) => ({
+        pages: state.pages.map(p => p.id === id ? { ...p, content } : p)
+      })),
+      addPage: (title = 'New Page', content = '') => set((state) => {
+        const id = Math.random().toString(36).substring(2, 9);
+        const newPage = { id, title, content };
+        return {
+          pages: [...state.pages, newPage],
+          activePageIds: [...state.activePageIds, id]
+        };
+      }),
+      removePage: (id) => set((state) => ({
+        pages: state.pages.filter(p => p.id !== id),
+        activePageIds: state.activePageIds.filter(pid => pid !== id)
+      })),
+      togglePageOpen: (id) => set((state) => ({
+        activePageIds: state.activePageIds.includes(id) 
+          ? state.activePageIds.filter(pid => pid !== id)
+          : [...state.activePageIds, id]
       })),
       setCursor: (cursor) => set({ cursor }),
+      setSemanticClusters: (semanticClusters) => set({ semanticClusters }),
       addSnapshot: async (content, userNote) => {
         const snapshot = await snapshotService.saveSnapshot(content, userNote);
         set((state) => ({
@@ -53,41 +82,13 @@ export const useEditorStore = create<EditorState>()(
       setSnapshots: (snapshots) => set((state) => ({
         snapshots: typeof snapshots === 'function' ? snapshots(state.snapshots) : snapshots
       })),
-      undo: () => {
-        set((state) => {
-          if (state.history.past.length === 0) return state;
-          const previous = state.history.past[state.history.past.length - 1];
-          const newPast = state.history.past.slice(0, state.history.past.length - 1);
-          return {
-            content: previous,
-            history: {
-              past: newPast,
-              future: [state.content, ...state.history.future],
-            },
-          };
-        });
-      },
-      redo: () => {
-        set((state) => {
-          if (state.history.future.length === 0) return state;
-          const next = state.history.future[0];
-          const newFuture = state.history.future.slice(1);
-          return {
-            content: next,
-            history: {
-              past: [...state.history.past, state.content],
-              future: newFuture,
-            },
-          };
-        });
-      },
     }),
     {
-      name: 'ink-quill-editor-storage',
+      name: 'ink-quill-editor-storage-v2',
       partialize: (state) => ({
-        content: state.content,
+        pages: state.pages,
+        activePageIds: state.activePageIds,
         wordGoal: state.wordGoal,
-        // snapshots are in IndexedDB, cursor/history are session-based
       }),
     }
   )

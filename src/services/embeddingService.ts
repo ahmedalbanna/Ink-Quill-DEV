@@ -101,7 +101,57 @@ class EmbeddingService {
     return this.readyPromise;
   }
 
-  async generateEmbedding(text: string): Promise<number[]> {
+  async generateEmbedding(text: string, options?: { provider?: string; apiKey?: string; model?: string }): Promise<number[]> {
+    const { provider = 'pipeline', apiKey, model } = options || {};
+
+    if (provider === 'google') {
+      const key = apiKey || process.env.GEMINI_API_KEY;
+      if (!key) throw new Error('Gemini API key is required for Google embeddings');
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'text-embedding-004'}:embedContent?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: { parts: [{ text }] }
+        })
+      });
+      if (!response.ok) throw new Error(`Google Embedding failed: ${response.statusText}`);
+      const data = await response.json();
+      return data.embedding.values;
+    }
+
+    if (provider === 'openai') {
+      if (!apiKey) throw new Error('OpenAI API key is required for embeddings');
+      const response = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          input: text,
+          model: model || 'text-embedding-3-small'
+        })
+      });
+      if (!response.ok) throw new Error(`OpenAI Embedding failed: ${response.statusText}`);
+      const data = await response.json();
+      return data.data[0].embedding;
+    }
+
+    if (provider === 'ollama') {
+      const response = await fetch('/api/ai/embeddings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model || 'nomic-embed-text',
+          prompt: text
+        })
+      });
+      if (!response.ok) throw new Error(`Ollama Embedding failed: ${response.statusText}`);
+      const data = await response.json();
+      return data.embedding;
+    }
+
+    // Default to local pipeline
     await this.init();
     if (!this.worker) throw new Error('Worker not initialized');
     
