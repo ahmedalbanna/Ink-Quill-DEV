@@ -26,7 +26,6 @@ import { AIReviewPanel } from './components/ai/AIReviewPanel';
 import { EditorContainer } from './components/editor/EditorContainer';
 import { FloatingToolbar } from './components/navigation/FloatingToolbar';
 import { SearchBar } from './components/overlays/SearchBar';
-import { SnapshotsMenu } from './components/overlays/SnapshotsMenu';
 import { FileActionsMenu } from './components/overlays/FileActionsMenu';
 import { SettingsModal } from './components/overlays/SettingsModal';
 import { ShortcutsHelp } from './components/overlays/ShortcutsHelp';
@@ -44,10 +43,10 @@ export default function App() {
     setPageContent, 
     addPage, 
     togglePageOpen,
+    setPageSettings,
     wordGoal, 
     setWordGoal, 
     addSnapshot, 
-    setSnapshots, 
     loadSnapshots 
   } = useEditorStore();
   
@@ -62,10 +61,8 @@ export default function App() {
   };
 
   const {
-    isTypewriter, toggleTypewriter,
     showAIAssistant: showAiAssistant, setAIAssistant: setAiAssistant,
     showSearch, setSearch,
-    isFocusMode, toggleFocusMode,
     showSemanticFolders, setSemanticFolders,
     setMobileMenu,
     showSettings, setSettings,
@@ -110,7 +107,6 @@ export default function App() {
   const [isWholeWord, setIsWholeWord] = useState(false);
   const [isSemantic, setIsSemantic] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showSnapshots, setShowSnapshots] = useState(false);
   const [showFileActions, setShowFileActions] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -382,7 +378,11 @@ export default function App() {
         }
       } else if (e.key === 't' && e.shiftKey) {
         e.preventDefault();
-        toggleTypewriter();
+        const activeId = activePageIds[activePageIds.length - 1];
+        const page = pages.find(p => p.id === activeId);
+        if (page) {
+          setPageSettings(activeId, { isTypewriter: !page.isTypewriter });
+        }
       } else if (e.key === '/') {
         e.preventDefault();
         setShowShortcuts(prev => !prev);
@@ -485,15 +485,12 @@ export default function App() {
     }
   };
 
-  const clearEditor = () => {
-    if (window.confirm("Are you sure you want to clear your document? This cannot be undone.")) {
-      setMarkdown("");
-    }
-  };
-
   const takeSnapshot = async () => {
-    await addSnapshot(markdown);
-    alert("Snapshot saved successfully.");
+    const activeId = activePageIds[activePageIds.length - 1];
+    if (activeId) {
+      await addSnapshot(activeId, markdown);
+      alert("Snapshot saved successfully.");
+    }
   };
 
   const handleAiGenerate = async () => {
@@ -760,13 +757,6 @@ export default function App() {
       <ShortcutsHelp 
         showShortcuts={showShortcuts}
         setShowShortcuts={setShowShortcuts}
-      />
-
-      <SnapshotsMenu 
-        showSnapshots={showSnapshots}
-        setShowSnapshots={setShowSnapshots}
-        takeSnapshot={takeSnapshot}
-        setMarkdown={setMarkdown}
       />
 
       <FileActionsMenu 

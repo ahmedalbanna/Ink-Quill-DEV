@@ -25,8 +25,6 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     showAiSettings, setAiSettings,
     showSearch, setSearch,
     showSemanticFolders, setSemanticFolders,
-    isTypewriter, setTypewriter,
-    isFocusMode, toggleFocusMode,
     showSettings, setSettings
   } = useUIStore();
 
@@ -107,36 +105,6 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         title="Semantic Folders"
       >
         <FolderRoot className="w-5 h-5" />
-      </motion.button>
-
-      {/* Typewriter toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => setTypewriter(!isTypewriter)}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          isTypewriter ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="Typewriter Mode"
-      >
-        <Type className="w-5 h-5" />
-      </motion.button>
-
-      {/* Focus Mode toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => toggleFocusMode()}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          isFocusMode ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="Paragraph Focus Mode"
-      >
-        <FocusOn className="w-5 h-5" />
       </motion.button>
 
       {/* Orientation toggle */}

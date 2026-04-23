@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 interface UIState {
-  isTypewriter: boolean;
   isSuperZen: boolean;
   showAIAssistant: boolean;
   showSearch: boolean;
@@ -13,18 +12,13 @@ interface UIState {
   showSemanticFolders: boolean;
   showPages: boolean;
   direction: 'ltr' | 'rtl';
-  isFocusMode: boolean;
   isIndexing: boolean;
   indexedChunks: number;
   indexedEpisodes: number;
   
-  toggleTypewriter: () => void;
   toggleSuperZen: () => void;
-  toggleFocusMode: () => void;
   toggleAIAssistant: () => void;
-  setTypewriter: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSuperZen: (show: boolean | ((prev: boolean) => boolean)) => void;
-  setFocusMode: (show: boolean | ((prev: boolean) => boolean)) => void;
   setAIAssistant: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSearch: (show: boolean | ((prev: boolean) => boolean)) => void;
   setMobileMenu: (show: boolean | ((prev: boolean) => boolean)) => void;
@@ -41,7 +35,6 @@ interface UIState {
 export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
-      isTypewriter: false,
       isSuperZen: false,
       showAIAssistant: false,
       showSearch: false,
@@ -52,23 +45,14 @@ export const useUIStore = create<UIState>()(
       showSemanticFolders: false,
       showPages: false,
       direction: 'ltr',
-      isFocusMode: false,
       isIndexing: false,
       indexedChunks: 0,
       indexedEpisodes: 0,
 
-      toggleTypewriter: () => set((state) => ({ isTypewriter: !state.isTypewriter })),
       toggleSuperZen: () => set((state) => ({ isSuperZen: !state.isSuperZen })),
-      toggleFocusMode: () => set((state) => ({ isFocusMode: !state.isFocusMode })),
       toggleAIAssistant: () => set((state) => ({ showAIAssistant: !state.showAIAssistant })),
-      setTypewriter: (isTypewriter) => set((state) => ({ 
-        isTypewriter: typeof isTypewriter === 'function' ? isTypewriter(state.isTypewriter) : isTypewriter 
-      })),
       setSuperZen: (isSuperZen) => set((state) => ({ 
         isSuperZen: typeof isSuperZen === 'function' ? isSuperZen(state.isSuperZen) : isSuperZen 
-      })),
-      setFocusMode: (isFocusMode) => set((state) => ({ 
-        isFocusMode: typeof isFocusMode === 'function' ? isFocusMode(state.isFocusMode) : isFocusMode 
       })),
       setAIAssistant: (showAIAssistant) => set((state) => ({ 
         showAIAssistant: typeof showAIAssistant === 'function' ? showAIAssistant(state.showAIAssistant) : showAIAssistant 
