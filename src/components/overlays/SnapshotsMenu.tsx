@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { History, Plus, X } from 'lucide-react';
 import { useEditorStore } from '../../stores/editorStore';
+import { cn } from '@/src/lib/utils';
 
 interface SnapshotsMenuProps {
   pageId: string;
@@ -29,7 +30,7 @@ export const SnapshotsMenu: React.FC<SnapshotsMenuProps> = ({
           "p-1.5 rounded-md transition-all",
           showSnapshots ? "bg-minimal-accent text-white" : "text-minimal-muted hover:text-minimal-text hover:bg-minimal-sidebar"
         )}
-        onClick={() => setShowSnapshots(!showSnapshots)} 
+        onClick={() => setShowSnapshots(!showSnapshots)}
         title="Document Snapshots"
       >
         <History className="w-3.5 h-3.5" />
@@ -39,11 +40,11 @@ export const SnapshotsMenu: React.FC<SnapshotsMenuProps> = ({
         <div className="absolute right-0 top-full mt-2 flex flex-col gap-1 w-48 bg-minimal-bg border border-minimal-border rounded-2xl shadow-2xl p-2 z-[60] animate-in fade-in zoom-in-95 duration-200 origin-top-right">
           <div className="px-3 py-1.5 border-b border-minimal-border flex items-center justify-between">
             <span className="text-[9px] font-bold text-minimal-muted uppercase tracking-widest">Snapshots</span>
-            <button 
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 takeSnapshot();
-              }} 
+              }}
               className="p-1 hover:bg-minimal-accent/10 rounded-lg group/plus"
             >
               <Plus className="w-3 h-3 text-minimal-accent group-hover/plus:rotate-90 transition-transform" />

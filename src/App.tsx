@@ -20,7 +20,7 @@ import { MobileMenu } from './components/navigation/MobileMenu';
 import { AIAssistantSidebar } from './components/ai/AIAssistantSidebar';
 import { SavedConversationsOverlay } from './components/ai/SavedConversationsOverlay';
 import { PagesManager } from './components/navigation/PagesManager';
- 
+
 import { AIProviderSettings } from './components/ai/AIProviderSettings';
 import { AIReviewPanel } from './components/ai/AIReviewPanel';
 import { EditorContainer } from './components/editor/EditorContainer';
@@ -37,22 +37,22 @@ import { X } from 'lucide-react';
 import { cn } from './lib/utils';
 
 export default function App() {
-  const { 
-    pages, 
-    activePageIds, 
-    setPageContent, 
-    addPage, 
+  const {
+    pages,
+    activePageIds,
+    setPageContent,
+    addPage,
     togglePageOpen,
     setPageSettings,
-    wordGoal, 
-    setWordGoal, 
-    addSnapshot, 
-    loadSnapshots 
+    wordGoal,
+    setWordGoal,
+    addSnapshot,
+    loadSnapshots
   } = useEditorStore();
-  
+
   // Ref for multiple editors
   const editorRefs = useRef<Record<string, EditorRef | null>>({});
-  
+
   // For compatibility with single-doc logic, we'll use the "last active" page for some things
   const activePage = pages.find(p => p.id === activePageIds[activePageIds.length - 1]) || pages[0];
   const markdown = activePage?.content || '';
@@ -229,14 +229,14 @@ export default function App() {
 
     const updated = [newChat, ...savedChats];
     setSavedChats(updated);
-    
-    const embeddingOptions = { 
-      provider: serviceConfigs.embeddings.provider, 
-      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
-      model: serviceConfigs.embeddings.model 
+
+    const embeddingOptions = {
+      provider: serviceConfigs.embeddings.provider,
+      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys],
+      model: serviceConfigs.embeddings.model
     };
     ragService.indexConversation(newChat.id, newChat.name, newChat.history, embeddingOptions);
-    
+
     alert("Conversation saved successfully.");
   };
 
@@ -308,7 +308,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadSnapshots();
+    loadSnapshots(activePageIds[0]!);
   }, [loadSnapshots]);
 
   useEffect(() => {
@@ -320,7 +320,7 @@ export default function App() {
   // Auto-snapshot every 5 minutes
   useEffect(() => {
     const interval = setInterval(() => {
-      addSnapshot(markdown);
+      addSnapshot(activePageIds[0]!, markdown);
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
@@ -329,10 +329,10 @@ export default function App() {
   // Debounced RAG indexing
   useEffect(() => {
     const timeout = setTimeout(() => {
-      const embeddingOptions = { 
-        provider: serviceConfigs.embeddings.provider, 
-        apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
-        model: serviceConfigs.embeddings.model 
+      const embeddingOptions = {
+        provider: serviceConfigs.embeddings.provider,
+        apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys],
+        model: serviceConfigs.embeddings.model
       };
       ragService.indexDocument(markdown, embeddingOptions);
     }, 5000);
@@ -343,7 +343,7 @@ export default function App() {
   // Snapshot on document close
   useEffect(() => {
     const handleBeforeUnload = () => {
-      addSnapshot(markdown);
+      addSnapshot(activePageIds[0]!, markdown);
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -398,7 +398,7 @@ export default function App() {
       return;
     }
 
-    if (isSemantic) return; 
+    if (isSemantic) return;
 
     const flags = isCaseSensitive ? 'g' : 'gi';
     let pattern = findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -496,10 +496,10 @@ export default function App() {
   const handleAiGenerate = async () => {
     if (!aiPrompt.trim() && chatAttachedImages.length === 0) return;
 
-    const embeddingOptions = { 
-      provider: serviceConfigs.embeddings.provider, 
-      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
-      model: serviceConfigs.embeddings.model 
+    const embeddingOptions = {
+      provider: serviceConfigs.embeddings.provider,
+      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys],
+      model: serviceConfigs.embeddings.model
     };
     ragService.indexDocument(markdown, embeddingOptions);
 
@@ -586,7 +586,7 @@ export default function App() {
 
   useEffect(() => {
     const anyOllama = Object.values(serviceConfigs).some(c => c.provider === 'ollama');
-    
+
     if (anyOllama) {
       setOllamaStatus({ ...ollamaStatus, loading: true });
       const activeOllamaModel = Object.values(serviceConfigs).find(c => c.provider === 'ollama')?.model || 'mistral';
@@ -602,7 +602,7 @@ export default function App() {
         }
       });
     } else {
-       setOllamaStatus({
+      setOllamaStatus({
         loading: false,
         connected: false,
         model: ''
@@ -612,8 +612,12 @@ export default function App() {
 
   const wordCount = markdown.split(/\s+/).filter(Boolean).length;
   const charCount = markdown.length;
-  const readingTime = Math.ceil(wordCount / 200); 
+  const readingTime = Math.ceil(wordCount / 200);
   const goalProgress = wordGoal > 0 ? Math.min((wordCount / wordGoal) * 100, 100) : 0;
+
+  function clearEditor(): void {
+    throw new Error('Function not implemented.');
+  }
 
   return (
     <div
@@ -640,7 +644,7 @@ export default function App() {
 
       <MobileMenu clearEditor={clearEditor} />
 
-      <AIAssistantSidebar 
+      <AIAssistantSidebar
         chatScrollRef={chatScrollRef}
         chatInputRef={chatInputRef}
         chatImageInputRef={chatImageInputRef}
@@ -656,25 +660,25 @@ export default function App() {
         setAiResult={setAiResult}
       />
 
-      <SavedConversationsOverlay 
+      <SavedConversationsOverlay
         loadChat={loadChat}
         setMarkdown={setMarkdown}
         exportChat={exportChat}
         deleteSavedChat={deleteSavedChat}
       />
 
-      <AIProviderSettings 
+      <AIProviderSettings
         aiSettingsTab={aiSettingsTab}
         setAiSettingsTab={setAiSettingsTab}
       />
 
-      <AIReviewPanel 
+      <AIReviewPanel
         aiResult={aiResult}
         setAiResult={setAiResult}
         applyAiResult={applyAiResult}
       />
 
-      <EditorContainer 
+      <EditorContainer
         editorRefs={editorRefs}
         handleKeyDown={handleKeyDown}
         insertText={insertText}
@@ -690,7 +694,7 @@ export default function App() {
       />
 
       {!isMobile && (
-        <FloatingToolbar 
+        <FloatingToolbar
           wordGoal={wordGoal}
           setWordGoal={setWordGoal}
           clearEditor={clearEditor}
@@ -699,7 +703,7 @@ export default function App() {
         />
       )}
 
-      <SearchBar 
+      <SearchBar
         findText={findText}
         setFindText={setFindText}
         replaceText={replaceText}
@@ -727,7 +731,7 @@ export default function App() {
             className="absolute right-0 top-0 bottom-0 z-[100] w-[320px] shadow-2xl"
           >
             <div className="h-full relative">
-               <button 
+              <button
                 onClick={() => setSemanticFolders(false)}
                 className="absolute top-4 -left-12 p-2 bg-minimal-bg border border-minimal-border rounded-full hover:text-red-500 transition-colors shadow-lg z-[110]"
               >
@@ -745,7 +749,7 @@ export default function App() {
       <PagesManager />
 
       {isMobile && (
-        <MobileToolbar 
+        <MobileToolbar
           editorRef={{ current: editorRefs.current[activePageIds[activePageIds.length - 1]] }}
           fileInputRef={fileInputRef}
           insertText={insertText}
@@ -754,12 +758,12 @@ export default function App() {
 
       <SettingsModal />
 
-      <ShortcutsHelp 
+      <ShortcutsHelp
         showShortcuts={showShortcuts}
         setShowShortcuts={setShowShortcuts}
       />
 
-      <FileActionsMenu 
+      <FileActionsMenu
         showFileActions={showFileActions}
         setShowFileActions={setShowFileActions}
         importFileInputRef={importFileInputRef}
@@ -767,7 +771,7 @@ export default function App() {
         markdown={markdown}
       />
 
-      <StatusBar 
+      <StatusBar
         wordCount={wordCount}
         charCount={charCount}
         readingTime={readingTime}

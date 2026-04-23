@@ -36,11 +36,11 @@ export const EditorContainer: React.FC<EditorContainerProps> = ({
   searchIndex,
   currentMatchIndex
 }) => {
-  const { 
-    pages, 
-    activePageIds, 
-    setPageContent, 
-    addPage, 
+  const {
+    pages,
+    activePageIds,
+    setPageContent,
+    addPage,
     togglePageOpen,
     setPageSettings,
     addSnapshot
@@ -65,7 +65,7 @@ export const EditorContainer: React.FC<EditorContainerProps> = ({
           const page = pages.find(p => p.id === id);
           if (!page) return null;
           return (
-            <div 
+            <div
               key={id}
               className="flex-shrink-0 w-full max-w-[850px] h-full bg-minimal-bg shadow-[0_32px_64px_-12px_rgba(0,0,0,0.1)] rounded-xl border border-minimal-border flex flex-col snap-center relative group mx-4 first:ml-auto last:mr-auto"
             >
@@ -76,7 +76,7 @@ export const EditorContainer: React.FC<EditorContainerProps> = ({
                   </div>
                   <span className="text-[10px] font-bold text-minimal-muted uppercase tracking-widest">{page.title}</span>
                 </div>
-                
+
                 <div className="flex items-center gap-1">
                   {/* Per-page controls */}
                   <div className="flex items-center bg-minimal-bg/50 rounded-lg border border-minimal-border/50 p-0.5 mr-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -101,7 +101,7 @@ export const EditorContainer: React.FC<EditorContainerProps> = ({
                       <FocusOn className="w-3.5 h-3.5" />
                     </button>
                     <div className="w-px h-3.5 bg-minimal-border mx-1" />
-                    <SnapshotsMenu 
+                    <SnapshotsMenu
                       pageId={id}
                       showSnapshots={!!visibleSnapshots[id]}
                       setShowSnapshots={() => toggleSnapshots(id)}
@@ -110,7 +110,7 @@ export const EditorContainer: React.FC<EditorContainerProps> = ({
                     />
                   </div>
 
-                  <button 
+                  <button
                     onClick={() => togglePageOpen(id)}
                     className="p-1 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Close page"
@@ -159,16 +159,16 @@ export const EditorContainer: React.FC<EditorContainerProps> = ({
                     }
                   }}
                   searchQuery={showSearch ? findText : ''}
-                  searchOptions={{ 
-                    isCaseSensitive, 
-                    isWholeWord, 
-                    isSemantic, 
-                    searchIndex, 
+                  searchOptions={{
+                    isCaseSensitive,
+                    isWholeWord,
+                    isSemantic,
+                    searchIndex,
                     currentMatchIndex,
-                    embeddingOptions: { 
-                      provider: serviceConfigs.embeddings.provider, 
-                      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys], 
-                      model: serviceConfigs.embeddings.model 
+                    embeddingOptions: {
+                      provider: serviceConfigs.embeddings.provider,
+                      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys],
+                      model: serviceConfigs.embeddings.model
                     }
                   }}
                   collab={{
@@ -180,23 +180,8 @@ export const EditorContainer: React.FC<EditorContainerProps> = ({
             </div>
           );
         })}
-        
-        <button 
-          onClick={() => addPage('New Chapter')}
-          className="flex-shrink-0 w-64 h-full border-2 border-dashed border-minimal-border rounded-xl flex flex-col items-center justify-center gap-3 text-minimal-muted hover:border-minimal-accent/40 hover:text-minimal-accent hover:bg-minimal-sidebar transition-all group"
-        >
-          <div className="p-4 bg-minimal-sidebar rounded-full group-hover:rotate-180 transition-transform duration-500">
-            <Plus className="w-6 h-6" />
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-widest">New Chapter</span>
-        </button>
-      </div>
-    </main>
-  );
-};
 
-        
-        <button 
+        <button
           onClick={() => addPage('New Chapter')}
           className="flex-shrink-0 w-64 h-full border-2 border-dashed border-minimal-border rounded-xl flex flex-col items-center justify-center gap-3 text-minimal-muted hover:border-minimal-accent/40 hover:text-minimal-accent hover:bg-minimal-sidebar transition-all group"
         >
