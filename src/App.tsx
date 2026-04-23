@@ -18,17 +18,15 @@ import { useSettingsStore } from './stores/settingsStore';
 // Components
 import { MobileMenu } from './components/navigation/MobileMenu';
 import { AIAssistantSidebar } from './components/ai/AIAssistantSidebar';
-import { SavedConversationsOverlay } from './components/ai/SavedConversationsOverlay';
 import { PagesManager } from './components/navigation/PagesManager';
 
 import { AIProviderSettings } from './components/ai/AIProviderSettings';
-import { AIReviewPanel } from './components/ai/AIReviewPanel';
 import { EditorContainer } from './components/editor/EditorContainer';
 import { FloatingToolbar } from './components/navigation/FloatingToolbar';
 import { SearchBar } from './components/overlays/SearchBar';
-import { FileActionsMenu } from './components/overlays/FileActionsMenu';
 import { SettingsModal } from './components/overlays/SettingsModal';
 import { ShortcutsHelp } from './components/overlays/ShortcutsHelp';
+import { ImportModal } from './components/overlays/ImportModal';
 import { StatusBar } from './components/layout/StatusBar';
 import { MobileToolbar } from './components/navigation/MobileToolbar';
 import { SemanticFolders } from './components/SemanticFolders';
@@ -44,8 +42,6 @@ export default function App() {
     addPage,
     togglePageOpen,
     setPageSettings,
-    wordGoal,
-    setWordGoal,
     addSnapshot,
     loadSnapshots
   } = useEditorStore();
@@ -78,7 +74,6 @@ export default function App() {
     setAvailableModels,
     isGenerating: isGeneratingAi, setGenerating: setIsGeneratingAi,
     ollamaStatus, setOllamaStatus,
-    savedChats, setSavedChats,
     provider,
     serviceConfigs, setServiceProvider, setServiceModel,
     apiKeys, setApiKey,
@@ -96,7 +91,6 @@ export default function App() {
   const isMobile = useMediaQuery('(max-width: 768px)');
 
   const [aiPrompt, setAiPrompt] = useState('');
-  const [aiResult, setAiResult] = useState<string | null>(null);
   const [aiSettingsTab, setAiSettingsTab] = useState<'chat' | 'actions' | 'semantic' | 'embeddings'>('chat');
   const [findText, setFindText] = useState('');
   const [replaceText, setReplaceText] = useState('');
@@ -106,6 +100,7 @@ export default function App() {
   const [isCaseSensitive, setIsCaseSensitive] = useState(false);
   const [isWholeWord, setIsWholeWord] = useState(false);
   const [isSemantic, setIsSemantic] = useState(false);
+  const [semanticResults, setSemanticResults] = useState<{ text: string, score: number, source?: string }[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileActions, setShowFileActions] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -136,7 +131,6 @@ export default function App() {
   const chatImageInputRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [chatAttachedImages, setChatAttachedImages] = useState<string[]>([]);
-  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus>('idle');
   const [embeddingProgress, setEmbeddingProgress] = useState(0);
@@ -178,24 +172,6 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (window.confirm("Importing this file will replace your current document. Continue?")) {
-      try {
-        const content = await importFile(file);
-        setMarkdown(content);
-        alert("File imported successfully!");
-      } catch (error) {
-        console.error("Import failed:", error);
-        alert("Failed to import file: " + (error instanceof Error ? error.message : String(error)));
-      }
-    }
-
-    if (importFileInputRef.current) importFileInputRef.current.value = '';
-  };
-
   const handleChatImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -212,64 +188,6 @@ export default function App() {
       reader.readAsDataURL(file);
     });
     if (chatImageInputRef.current) chatImageInputRef.current.value = '';
-  };
-
-  const saveCurrentChat = () => {
-    if (chatHistory.length === 0) return;
-    const name = window.prompt("Enter a name for this conversation:", `Chat ${new Date().toLocaleString()}`);
-    if (!name) return;
-
-    const newChat = {
-      id: Math.random().toString(36).substr(2, 9),
-      name,
-      history: chatHistory,
-      timestamp: Date.now(),
-      documentSnapshot: markdown
-    };
-
-    const updated = [newChat, ...savedChats];
-    setSavedChats(updated);
-
-    const embeddingOptions = {
-      provider: serviceConfigs.embeddings.provider,
-      apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys],
-      model: serviceConfigs.embeddings.model
-    };
-    ragService.indexConversation(newChat.id, newChat.name, newChat.history, embeddingOptions);
-
-    alert("Conversation saved successfully.");
-  };
-
-  const loadChat = (chat: any) => {
-    setChatHistory(chat.history);
-    setSavedConversations(false);
-  };
-
-  const deleteSavedChat = (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this saved conversation?")) return;
-    const updated = savedChats.filter(c => c.id !== id);
-    setSavedChats(updated);
-  };
-
-  const exportChat = (history: ChatMessage[], format: 'json' | 'md') => {
-    let content = "";
-    let filename = `chat-export-${Date.now()}`;
-
-    if (format === 'json') {
-      content = JSON.stringify(history, null, 2);
-      filename += ".json";
-    } else {
-      content = history.map(m => `### ${m.role.toUpperCase()}\n\n${m.parts[0].text}`).join('\n\n---\n\n');
-      filename += ".md";
-    }
-
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const formatChatInput = (type: 'bold' | 'italic' | 'list') => {
@@ -395,10 +313,40 @@ export default function App() {
       setMatchCount(0);
       setCurrentMatchIndex(0);
       setSearchIndex(-1);
+      setSemanticResults([]);
       return;
     }
 
-    if (isSemantic) return;
+    if (isSemantic) {
+      // Semantic search is handled by the search plugin asynchronously,
+      // but we still want to trigger the calculation and update counts in App.tsx
+      const performSemanticSearch = async () => {
+        try {
+          const embeddingOptions = {
+            provider: serviceConfigs.embeddings.provider,
+            apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys],
+            model: serviceConfigs.embeddings.model
+          };
+          const results = await ragService.searchDetailed(findText, 10, 0.2, embeddingOptions);
+          const docMatches = results.filter(r => r.source === 'document');
+          setMatchCount(docMatches.length);
+          setSemanticResults(results);
+          
+          if (docMatches.length > 0 && searchIndex === -1) {
+            setCurrentMatchIndex(0);
+          } else if (docMatches.length === 0) {
+            setCurrentMatchIndex(0);
+            setSearchIndex(-1);
+          }
+        } catch (error) {
+          console.error("Semantic search failed:", error);
+          setMatchCount(0);
+        }
+      };
+
+      performSemanticSearch();
+      return;
+    }
 
     const flags = isCaseSensitive ? 'g' : 'gi';
     let pattern = findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -493,6 +441,111 @@ export default function App() {
     }
   };
 
+  const handleAiAction = async (actionId: string) => {
+    const activeId = activePageIds[activePageIds.length - 1];
+    const editor = editorRefs.current[activeId];
+    if (!editor) return;
+
+    const selectedText = editor.getSelectedText();
+    const contextText = selectedText || markdown.substring(0, 5000); // Limit context size
+
+    let prompt = "";
+    switch (actionId) {
+      case 'improve':
+        prompt = `Improve the following text for clarity, flow, and impact:\n\n"${contextText}"`;
+        break;
+      case 'summarize':
+        prompt = `Summarize the following text while retaining key points:\n\n"${contextText}"`;
+        break;
+      case 'rewrite':
+        prompt = `Rewrite the following text in a more professional and engaging tone:\n\n"${contextText}"`;
+        break;
+      case 'expand':
+        prompt = `Expand on the following ideas with more detail and examples:\n\n"${contextText}"`;
+        break;
+      case 'generate-outline':
+        prompt = `Generate a structured outline for a document based on this context:\n\n"${contextText}"`;
+        break;
+      case 'draft-topic':
+        prompt = `Draft a comprehensive section about this topic:\n\n"${contextText}"`;
+        break;
+      case 'fix-grammar':
+        prompt = `Fix the grammar, spelling, and punctuation in the following text:\n\n"${contextText}"`;
+        break;
+      case 'complete-text':
+        prompt = `Continue writing based on the following context, maintaining the same style and tone:\n\n"${contextText}"`;
+        break;
+      case 'suggest-title':
+        prompt = `Suggest 5 creative and relevant titles for a document with this content:\n\n"${contextText}"`;
+        break;
+      case 'shorten':
+        prompt = `Condense the following text to be more concise without losing its meaning:\n\n"${contextText}"`;
+        break;
+      default:
+        return;
+    }
+
+    setAiPrompt(prompt);
+    // Actually we can trigger handleAiGenerate immediately after setting the prompt
+    // but setAiPrompt is async-like (state update), so we use the local variable
+    
+    // Manual trigger of handleAiGenerate logic with the specific prompt
+    const userMessage: ChatMessage = {
+      role: 'user',
+      parts: [{ text: prompt }]
+    };
+    const historyWithUser = [...chatHistory, userMessage];
+    setChatHistory(historyWithUser);
+    setAiPrompt('');
+    setIsGeneratingAi(true);
+    setAiResult(null);
+    setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
+
+    try {
+      let fullResponse = "";
+      const embeddingOptions = {
+        provider: serviceConfigs.embeddings.provider,
+        apiKey: apiKeys?.[serviceConfigs.embeddings.provider as keyof typeof apiKeys],
+        model: serviceConfigs.embeddings.model
+      };
+      
+      const response = await chatWithAI(
+        historyWithUser,
+        markdown,
+        {
+          personalInstructions: aiPersonalInstructions,
+          model: serviceConfigs.chat.model,
+          provider: serviceConfigs.chat.provider,
+          apiKeys,
+          providerConfigs,
+          onChunk: (chunk) => {
+            fullResponse += chunk;
+            setChatHistory(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'model') {
+                next[next.length - 1] = { ...last, parts: [{ text: fullResponse }] };
+              }
+              return next;
+            });
+          },
+          cursorContext: editor.getCursorContext() || "",
+          embeddingOptions
+        }
+      );
+    } catch (error) {
+      console.error("AI Action failed:", error);
+      const errorMessage = `Error: ${error instanceof Error ? error.message : String(error)}`;
+      setChatHistory(prev => {
+        const next = [...prev];
+        next[next.length - 1] = { role: 'model', parts: [{ text: errorMessage }] };
+        return next;
+      });
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  };
+
   const handleAiGenerate = async () => {
     if (!aiPrompt.trim() && chatAttachedImages.length === 0) return;
 
@@ -546,7 +599,6 @@ export default function App() {
           embeddingOptions
         }
       );
-      setAiResult(response);
     } catch (error) {
       console.error("AI Generation failed:", error);
       const errorMessage = `Error: ${error instanceof Error ? error.message : String(error)}`;
@@ -560,27 +612,23 @@ export default function App() {
     }
   };
 
-  const applyAiResult = (method: 'append' | 'insert' | 'replace' | 'suggest') => {
-    if (!aiResult) return;
-
+  const applyContent = (content: string, method: 'append' | 'insert' | 'replace' | 'suggest') => {
     const activeId = activePageIds[activePageIds.length - 1];
     const editor = editorRefs.current[activeId];
 
     switch (method) {
       case 'append':
         const prefix = markdown.trim() ? "\n\n" : "";
-        editor?.appendMarkdown(prefix + aiResult);
+        editor?.appendMarkdown(prefix + content);
         break;
       case 'insert':
       case 'replace':
-        editor?.replaceSelectionWithMarkdown(aiResult);
+        editor?.replaceSelectionWithMarkdown(content);
         break;
       case 'suggest':
-        editor?.replaceSelectionWithMarkdown(`\n\n> **Suggested Edit:**\n> ${aiResult.split('\n').join('\n> ')}\n\n`);
+        editor?.replaceSelectionWithMarkdown(`\n\n> **Suggested Edit:**\n> ${content.split('\n').join('\n> ')}\n\n`);
         break;
     }
-
-    setAiResult(null);
     setAiAssistant(false);
   };
 
@@ -613,11 +661,7 @@ export default function App() {
   const wordCount = markdown.split(/\s+/).filter(Boolean).length;
   const charCount = markdown.length;
   const readingTime = Math.ceil(wordCount / 200);
-  const goalProgress = wordGoal > 0 ? Math.min((wordCount / wordGoal) * 100, 100) : 0;
-
-  function clearEditor(): void {
-    throw new Error('Function not implemented.');
-  }
+  const goalProgress = (activePage?.wordGoal ?? 0) > 0 ? Math.min((wordCount / activePage.wordGoal) * 100, 100) : 0;
 
   return (
     <div
@@ -634,15 +678,8 @@ export default function App() {
         accept="image/*"
         onChange={handleImageUpload}
       />
-      <input
-        type="file"
-        ref={importFileInputRef}
-        className="hidden"
-        accept=".docx,.html,.htm,.md,.markdown,.txt"
-        onChange={handleFileImport}
-      />
 
-      <MobileMenu clearEditor={clearEditor} />
+      <MobileMenu />
 
       <AIAssistantSidebar
         chatScrollRef={chatScrollRef}
@@ -653,18 +690,10 @@ export default function App() {
         chatAttachedImages={chatAttachedImages}
         setChatAttachedImages={setChatAttachedImages}
         handleAiGenerate={handleAiGenerate}
-        saveCurrentChat={saveCurrentChat}
         handleChatImageUpload={handleChatImageUpload}
         formatChatInput={formatChatInput}
-        exportChat={exportChat}
-        setAiResult={setAiResult}
-      />
-
-      <SavedConversationsOverlay
-        loadChat={loadChat}
-        setMarkdown={setMarkdown}
-        exportChat={exportChat}
-        deleteSavedChat={deleteSavedChat}
+        applyContent={applyContent}
+        onAction={handleAiAction}
       />
 
       <AIProviderSettings
@@ -672,18 +701,12 @@ export default function App() {
         setAiSettingsTab={setAiSettingsTab}
       />
 
-      <AIReviewPanel
-        aiResult={aiResult}
-        setAiResult={setAiResult}
-        applyAiResult={applyAiResult}
-      />
-
       <EditorContainer
         editorRefs={editorRefs}
         handleKeyDown={handleKeyDown}
         insertText={insertText}
         fileInputRef={fileInputRef}
-        setAiResult={setAiResult}
+        applyContent={applyContent}
         isSemantic={isSemantic}
         setMatchCount={setMatchCount}
         findText={findText}
@@ -695,9 +718,6 @@ export default function App() {
 
       {!isMobile && (
         <FloatingToolbar
-          wordGoal={wordGoal}
-          setWordGoal={setWordGoal}
-          clearEditor={clearEditor}
           direction={direction}
           setDirection={setDirection}
         />
@@ -716,6 +736,7 @@ export default function App() {
         setIsWholeWord={setIsWholeWord}
         isSemantic={isSemantic}
         setIsSemantic={setIsSemantic}
+        semanticResults={semanticResults}
         handleFindNext={handleFindNext}
         handleReplace={handleReplace}
         handleReplaceAll={handleReplaceAll}
@@ -763,19 +784,17 @@ export default function App() {
         setShowShortcuts={setShowShortcuts}
       />
 
-      <FileActionsMenu
-        showFileActions={showFileActions}
-        setShowFileActions={setShowFileActions}
-        importFileInputRef={importFileInputRef}
-        editorRef={{ current: editorRefs.current[activePageIds[activePageIds.length - 1]] }}
-        markdown={markdown}
+      <ImportModal 
+        onImport={(content) => {
+          setMarkdown(content);
+        }}
       />
 
       <StatusBar
         wordCount={wordCount}
         charCount={charCount}
         readingTime={readingTime}
-        wordGoal={wordGoal}
+        wordGoal={activePage?.wordGoal ?? 0}
         goalProgress={goalProgress}
         embeddingStatus={embeddingStatus}
         embeddingProgress={embeddingProgress}

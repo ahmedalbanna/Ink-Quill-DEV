@@ -231,13 +231,24 @@ export class RagService {
     return sorted.map((s, i) => `[RELEVANT CLIP ${i + 1}]\n${s.chunk.text}`).join('\n\n---\n\n');
   }
 
-  async searchDetailed(query: string, limit = 5, threshold = 0.2, options?: { provider?: string; apiKey?: string; model?: string }): Promise<{ text: string; score: number }[]> {
+  async searchDetailed(query: string, limit = 5, threshold = 0.2, options?: { provider?: string; apiKey?: string; model?: string }): Promise<{ text: string; score: number; source?: string }[]> {
     const provider = options?.provider || 'pipeline';
     if (provider === 'pipeline' && !embeddingService.isReady()) return [];
     try {
       const queryEmbedding = await this.getCachedEmbedding(query, options);
-      const results = vectorStore.searchWithScores(queryEmbedding, limit, threshold);
-      return results.map(r => ({ text: r.chunk.text, score: r.score }));
+      
+      // Search in current document chunks
+      const chunkResults = vectorStore.searchWithScores(queryEmbedding, limit, threshold);
+      const formattedChunks = chunkResults.map(r => ({ text: r.chunk.text, score: r.score, source: 'document' }));
+
+      // Search in episodic memory (external knowledge)
+      const episodeResults = vectorStore.searchWithScores(queryEmbedding, limit, threshold, vectorStore.getEpisodes());
+      const formattedEpisodes = episodeResults.map(r => ({ text: r.chunk.text, score: r.score * 0.9, source: 'external' })); // Slightly penalize external context
+
+      // Combine and return best matches
+      return [...formattedChunks, ...formattedEpisodes]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
     } catch (e) {
       console.error('Semantic search error:', e);
       return [];

@@ -8,9 +8,9 @@ interface UIState {
   showMobileMenu: boolean;
   showSettings: boolean;
   showAiSettings: boolean;
-  showSavedConversations: boolean;
   showSemanticFolders: boolean;
   showPages: boolean;
+  showImportModal: boolean;
   direction: 'ltr' | 'rtl';
   isIndexing: boolean;
   indexedChunks: number;
@@ -24,9 +24,9 @@ interface UIState {
   setMobileMenu: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSettings: (show: boolean | ((prev: boolean) => boolean)) => void;
   setAiSettings: (show: boolean | ((prev: boolean) => boolean)) => void;
-  setSavedConversations: (show: boolean | ((prev: boolean) => boolean)) => void;
   setSemanticFolders: (show: boolean | ((prev: boolean) => boolean)) => void;
   setPagesMenu: (show: boolean | ((prev: boolean) => boolean)) => void;
+  setImportModal: (show: boolean | ((prev: boolean) => boolean)) => void;
   setDirection: (direction: 'ltr' | 'rtl' | ((prev: 'ltr' | 'rtl') => 'ltr' | 'rtl')) => void;
   setIndexing: (indexing: boolean) => void;
   setIndexedCounts: (chunks: number, episodes: number) => void;
@@ -41,9 +41,9 @@ export const useUIStore = create<UIState>()(
       showMobileMenu: false,
       showSettings: false,
       showAiSettings: false,
-      showSavedConversations: false,
       showSemanticFolders: false,
       showPages: false,
+      showImportModal: false,
       direction: 'ltr',
       isIndexing: false,
       indexedChunks: 0,
@@ -69,14 +69,14 @@ export const useUIStore = create<UIState>()(
       setAiSettings: (showAiSettings) => set((state) => ({ 
         showAiSettings: typeof showAiSettings === 'function' ? showAiSettings(state.showAiSettings) : showAiSettings 
       })),
-      setSavedConversations: (showSavedConversations) => set((state) => ({ 
-        showSavedConversations: typeof showSavedConversations === 'function' ? showSavedConversations(state.showSavedConversations) : showSavedConversations 
-      })),
       setSemanticFolders: (showSemanticFolders) => set((state) => ({ 
         showSemanticFolders: typeof showSemanticFolders === 'function' ? showSemanticFolders(state.showSemanticFolders) : showSemanticFolders 
       })),
       setPagesMenu: (showPages) => set((state) => ({ 
         showPages: typeof showPages === 'function' ? showPages(state.showPages) : showPages 
+      })),
+      setImportModal: (showImportModal) => set((state) => ({ 
+        showImportModal: typeof showImportModal === 'function' ? showImportModal(state.showImportModal) : showImportModal 
       })),
       setDirection: (direction) => set((state) => ({ 
         direction: typeof direction === 'function' ? direction(state.direction) : direction 

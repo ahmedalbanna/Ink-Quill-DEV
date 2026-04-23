@@ -5,17 +5,11 @@ import { cn } from '../../lib/utils';
 import { useUIStore } from '../../stores/uiStore';
 
 interface FloatingToolbarProps {
-  wordGoal: number;
-  setWordGoal: (goal: number) => void;
-  clearEditor: () => void;
   direction: 'ltr' | 'rtl';
   setDirection: (dir: 'ltr' | 'rtl' | ((prev: 'ltr' | 'rtl') => 'ltr' | 'rtl')) => void;
 }
 
 export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
-  wordGoal,
-  setWordGoal,
-  clearEditor,
   direction,
   setDirection
 }) => {
@@ -29,148 +23,42 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   } = useUIStore();
 
   return (
-    <div className="fixed top-8 right-8 z-50 flex flex-col gap-3">
-      {/* Assistant Toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => setAIAssistant(!showAIAssistant)}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          showAIAssistant ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="AI Assistant"
-      >
-        <Sparkles className="w-5 h-5" />
-      </motion.button>
-
-      {/* Pages Toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => setPagesMenu(!showPages)}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          showPages ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="Pages Manager"
-      >
-        <FileText className="w-5 h-5" />
-      </motion.button>
-
-      {/* AI Provider Settings Toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => setAiSettings(!showAiSettings)}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          showAiSettings ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="AI Provider Settings"
-      >
-        <Cpu className="w-5 h-5" />
-      </motion.button>
-
-      {/* Search Toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => { setSearch(!showSearch); }}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          showSearch ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="Find & Replace"
-      >
-        <Search className="w-5 h-5" />
-      </motion.button>
-
-      <div className="h-px bg-minimal-border/30 mx-3 my-1" />
-
-      {/* Semantic Folders toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => setSemanticFolders(!showSemanticFolders)}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          showSemanticFolders ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="Semantic Folders"
-      >
-        <FolderRoot className="w-5 h-5" />
-      </motion.button>
-
-      {/* Orientation toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => setDirection(prev => prev === 'ltr' ? 'rtl' : 'ltr')}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl bg-minimal-bg/90 border-minimal-border text-minimal-muted transition-all duration-300"
-        )}
-        title={`Switch to ${direction === 'ltr' ? 'RTL' : 'LTR'}`}
-      >
-        <Languages className="w-5 h-5" />
-      </motion.button>
-
-      {/* Daily Goal Toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => {
-          const goal = window.prompt("Set your word count goal:", wordGoal.toString());
-          if (goal !== null) {
-            const parsed = parseInt(goal);
-            setWordGoal(parsed || 0);
-            localStorage.setItem('ink-quill-goal', (parsed || 0).toString());
-          }
-        }}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          wordGoal > 0 ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="Daily Word Goal"
-      >
-        <Target className="w-5 h-5" />
-      </motion.button>
-
-      <div className="h-px bg-minimal-border/30 mx-3 my-1" />
-
-      {/* Wipe Document */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05, color: '#ef4444' }}
-        onClick={clearEditor}
-        className="p-3.5 bg-minimal-bg/90 backdrop-blur border border-minimal-border rounded-full shadow-2xl text-minimal-muted transition-all duration-300"
-        title="Wipe Document"
-      >
-        <Trash2 className="w-5 h-5" />
-      </motion.button>
-
-      {/* Global Settings Toggle */}
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        onClick={() => setSettings(!showSettings)}
-        className={cn(
-          "p-3.5 backdrop-blur border rounded-full shadow-2xl transition-all duration-300",
-          showSettings ? "bg-minimal-accent border-minimal-accent text-white" : "bg-minimal-bg/90 border-minimal-border text-minimal-muted"
-        )}
-        title="Global Settings"
-      >
-        <Settings className="w-5 h-5" />
-      </motion.button>
+    <div className="fixed top-8 right-8 z-[60] flex flex-col gap-3">
+      {[
+        { id: 'ai', icon: Sparkles, active: showAIAssistant, action: () => setAIAssistant(!showAIAssistant), title: 'AI Assistant' },
+        { id: 'pages', icon: FileText, active: showPages, action: () => setPagesMenu(!showPages), title: 'Pages Manager' },
+        { id: 'cpu', icon: Cpu, active: showAiSettings, action: () => setAiSettings(!showAiSettings), title: 'AI Provider Settings' },
+        { id: 'search', icon: Search, active: showSearch, action: () => setSearch(!showSearch), title: 'Find & Replace' },
+        { id: 'divider1', type: 'divider' },
+        { id: 'semantic', icon: FolderRoot, active: showSemanticFolders, action: () => setSemanticFolders(!showSemanticFolders), title: 'Semantic Folders' },
+        { id: 'lang', icon: Languages, active: false, action: () => setDirection(prev => prev === 'ltr' ? 'rtl' : 'ltr'), title: `Switch to ${direction === 'ltr' ? 'RTL' : 'LTR'}` },
+        { id: 'divider2', type: 'divider' },
+        { id: 'settings', icon: Settings, active: showSettings, action: () => setSettings(!showSettings), title: 'Global Settings' },
+      ].map((item, idx) => {
+        if (item.type === 'divider') return <div key={item.id} className="h-px bg-minimal-border/30 mx-3 my-1" />;
+        
+        const Icon = item.icon;
+        return (
+          <motion.button
+            key={item.id}
+            initial={{ opacity: 0, x: 20, scale: 0.8 }}
+            animate={{ opacity: item.active ? 1 : 0.6, x: 0, scale: 1 }}
+            whileHover={{ opacity: 1, scale: 1.1, x: -4 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ delay: idx * 0.05, duration: 0.3, ease: "easeOut" }}
+            onClick={item.action}
+            className={cn(
+              "p-3.5 backdrop-blur-md border rounded-full shadow-lg transition-all duration-300",
+              item.active 
+                ? "bg-minimal-accent border-minimal-accent text-white ring-4 ring-minimal-accent/20" 
+                : "bg-minimal-bg/80 border-minimal-border text-minimal-muted hover:border-minimal-accent/40 hover:text-minimal-text"
+            )}
+            title={item.title}
+          >
+            <Icon className="w-5 h-5" />
+          </motion.button>
+        );
+      })}
     </div>
   );
 };

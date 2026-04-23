@@ -37,7 +37,9 @@ import {
   Copy,
   Scissors,
   ClipboardPaste,
-  MoreVertical
+  MoreVertical,
+  Plus,
+  GripVertical
 } from 'lucide-react';
 import { tableNodes, tableEditing, goToNextCell } from 'prosemirror-tables';
 import { motion, AnimatePresence } from 'motion/react';
@@ -234,9 +236,11 @@ interface Props {
   apiKeys?: any;
   providerConfigs?: any;
   onAiResult?: (result: string) => void;
-  onAiStream?: (chunk: string) => void;
+  onAiStream?: (chunk: string, isNew?: boolean) => void;
   onImageUploadRequest?: () => void;
   onSearchMetadata?: (count: number, current: number) => void;
+  onSelectionChange?: (selection: { from: number; to: number }) => void;
+  initialCursor?: { from: number; to: number };
   searchQuery?: string;
   searchOptions?: {
     isCaseSensitive: boolean;
@@ -265,6 +269,7 @@ export interface EditorRef {
   handleFormat: (type: string) => void;
   getCursorContext: () => string;
   scrollToText: (text: string) => void;
+  streamMarkdown: (content: string, isNew?: boolean) => void;
 }
 
 const linkPreviewPlugin = new Plugin({
@@ -278,8 +283,42 @@ const linkPreviewPlugin = new Plugin({
           if (linkMark) {
             const el = event.target as HTMLElement;
             el.title = `Preview: ${linkMark.attrs.href}`;
-            // For a "real" preview we could fetch metadata, but browser title is a start.
-            // Let's add a more visible tooltip if possible.
+          }
+        }
+        return false;
+      },
+      click(view, event) {
+        const target = event.target as HTMLElement;
+        
+        // Toggle checkbox logic
+        if (target.classList.contains('task-checkbox')) {
+          const isChecked = target.getAttribute('data-checked') === 'true';
+          const pos = view.posAtDOM(target, 0);
+          if (pos !== null) {
+            const newText = isChecked ? '[ ]' : '[x]';
+            view.dispatch(view.state.tr.insertText(newText, pos, pos + 3));
+            return true;
+          }
+        }
+        
+        // Cycle priority logic
+        if (target.classList.contains('task-priority')) {
+          const current = target.getAttribute('data-priority');
+          const priorities = ['H', 'M', 'L'];
+          const currentIndex = priorities.indexOf(current || '');
+          const nextIndex = (currentIndex + 1) % (priorities.length + 1); // +1 for "none"
+          
+          const pos = view.posAtDOM(target, 0);
+          if (pos !== null) {
+            if (nextIndex === priorities.length) {
+              // Remove priority badge
+              view.dispatch(view.state.tr.delete(pos, pos + 3).scrollIntoView());
+            } else {
+              const next = priorities[nextIndex];
+              const newTag = `(${next})`;
+              view.dispatch(view.state.tr.insertText(newTag, pos, pos + 3).scrollIntoView());
+            }
+            return true;
           }
         }
         return false;
@@ -307,6 +346,8 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
   onAiStream,
   onImageUploadRequest,
   onSearchMetadata,
+  onSelectionChange,
+  initialCursor,
   searchQuery = '',
   searchOptions = { isCaseSensitive: false, isWholeWord: false, isSemantic: false, searchIndex: -1, currentMatchIndex: 0 },
   collab
@@ -320,6 +361,9 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
   const [showAiPopover, setShowAiPopover] = useState(false);
   const [slashMenu, setSlashMenu] = useState<{ x: number, y: number, show: boolean, pos: number }>({ x: 0, y: 0, show: false, pos: 0 });
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, show: boolean, pos: number }>({ x: 0, y: 0, show: false, pos: 0 });
+  const [sideMenu, setSideMenu] = useState<{ y: number, show: boolean, pos: number }>({ y: 0, show: false, pos: 0 });
+  const streamStartRef = useRef<number | null>(null);
+  const streamEndRef = useRef<number | null>(null);
 
   // Close menus on outside click
   useEffect(() => {
@@ -432,6 +476,40 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
         new Plugin({
           props: {
             handleDOMEvents: {
+              mousemove(view, event) {
+                if (bubbleMenu.show) return false;
+                
+                const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
+                if (pos) {
+                  const $pos = view.state.doc.resolve(pos.pos);
+                  // Find the top-level block node
+                  let blockNode = $pos.node(1);
+                  let blockPos = $pos.before(1);
+                  
+                  if (blockNode) {
+                    const coords = view.coordsAtPos(blockPos);
+                    const editorRect = editorRef.current?.getBoundingClientRect();
+                    if (editorRect) {
+                      setSideMenu({
+                        y: coords.top - editorRect.top,
+                        show: true,
+                        pos: blockPos
+                      });
+                    }
+                  }
+                }
+                return false;
+              },
+              mouseleave() {
+                setSideMenu(prev => ({ ...prev, show: false }));
+                return false;
+              }
+            }
+          }
+        }),
+        new Plugin({
+          props: {
+            handleDOMEvents: {
               contextmenu(view, event) {
                 event.preventDefault();
                 const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
@@ -509,6 +587,13 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
         if (tr.docChanged && !isUpdatingFromProps.current) {
           const markdown = editorSerializer.serialize(newState.doc);
           onChange(markdown);
+        }
+
+        if (!tr.selection.eq(this.state.selection)) {
+          onSelectionChange?.({
+            from: tr.selection.from,
+            to: tr.selection.to
+          });
         }
       },
       handleKeyDown(view, event) {
@@ -745,6 +830,29 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
           viewRef.current.focus();
         }
       }
+    },
+    streamMarkdown: (content: string, isNew: boolean = false) => {
+      if (!viewRef.current) return;
+      const { state, dispatch } = viewRef.current;
+      
+      if (isNew) {
+        streamStartRef.current = state.selection.from;
+        streamEndRef.current = state.selection.to;
+      }
+
+      const from = streamStartRef.current ?? state.selection.from;
+      const to = streamEndRef.current ?? state.selection.to;
+      
+      const parsed = editorParser.parse(content);
+      const tr = state.tr.replaceWith(from, to, parsed.content);
+      
+      // Update end ref after replacement
+      streamEndRef.current = from + parsed.content.size;
+      
+      // Auto-scroll to keep bottom of stream visible
+      tr.scrollIntoView();
+      
+      dispatch(tr);
     }
   }));
 
@@ -778,6 +886,7 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
       const fullDoc = defaultMarkdownSerializer.serialize(state.doc);
       const cursorContext = getCursorContextInternal();
 
+      let fullResponse = "";
       const result = await processAIAction(
         selectedText, 
         action, 
@@ -788,8 +897,10 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
           apiKeys,
           providerConfigs,
           onChunk: (chunk) => {
+            const isNew = fullResponse === "";
+            fullResponse += chunk;
             if (onAiStream) {
-              onAiStream(chunk);
+              onAiStream(fullResponse, isNew);
             }
           },
           documentContext: fullDoc,
@@ -836,6 +947,17 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
       const node = editorSchema.nodes.bullet_list.createAndFill();
       if (node) viewRef.current.dispatch(newState.tr.replaceSelectionWith(node));
     }
+    else if (action.startsWith('todo-')) {
+      const priority = action.replace('todo-', '');
+      let priorityTag = '';
+      switch(priority) {
+        case 'high': priorityTag = '(H)'; break;
+        case 'medium': priorityTag = '(M)'; break;
+        case 'low': priorityTag = '(L)'; break;
+      }
+      const tr = newState.tr.replaceSelectionWith(editorSchema.text(`- [ ] ${priorityTag} `));
+      viewRef.current.dispatch(tr);
+    }
     else if (action === 'code') setBlockType(editorSchema.nodes.code_block)(newState, viewRef.current.dispatch);
     else if (action === 'image') onImageUploadRequest?.();
     else if (['improve', 'outline', 'summarize', 'rewrite', 'complete-text'].includes(action) || action.startsWith('ai-')) {
@@ -874,7 +996,20 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
     if (viewRef.current) {
       viewRef.current.focus();
       const { state, dispatch } = viewRef.current;
-      dispatch(state.tr.setSelection(Selection.atEnd(state.doc)));
+      
+      if (initialCursor) {
+        try {
+          const max = state.doc.content.size;
+          const from = Math.min(initialCursor.from, max);
+          const to = Math.min(initialCursor.to, max);
+          dispatch(state.tr.setSelection(TextSelection.create(state.doc, from, to)).scrollIntoView());
+        } catch (e) {
+          console.warn("Failed to restore cursor position:", e);
+          dispatch(state.tr.setSelection(Selection.atEnd(state.doc)));
+        }
+      } else {
+        dispatch(state.tr.setSelection(Selection.atEnd(state.doc)));
+      }
     }
   }, []);
 
@@ -899,7 +1034,7 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
               top: bubbleMenu.y,
               transform: 'translateX(-50%)'
             }}
-            className="z-[100] flex items-center gap-1 bg-zinc-900 border border-zinc-700/50 rounded-lg p-1 shadow-2xl backdrop-blur"
+            className="z-[100] flex items-center gap-0.5 bg-zinc-900 border border-zinc-700/50 rounded-xl p-1 shadow-2xl backdrop-blur-xl ring-1 ring-white/10"
           >
             {!isTypewriter && (
               <>
@@ -1116,6 +1251,43 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
             onSelect={handleSlashSelect}
             onClose={() => setSlashMenu(prev => ({ ...prev, show: false }))}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {sideMenu.show && !bubbleMenu.show && (
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -10 }}
+            style={{ 
+              position: 'absolute',
+              left: '-2rem',
+              top: sideMenu.y,
+            }}
+            className="z-[50] flex items-center gap-0.5 group"
+          >
+            <button 
+              onClick={() => {
+                const coords = viewRef.current?.coordsAtPos(sideMenu.pos);
+                if (coords) {
+                  setSlashMenu({
+                    x: coords.left,
+                    y: coords.bottom + 5,
+                    show: true,
+                    pos: sideMenu.pos + 1
+                  });
+                }
+              }}
+              className="p-1.5 hover:bg-minimal-accent/10 text-minimal-muted/40 hover:text-minimal-accent rounded-lg transition-all cursor-pointer bg-minimal-bg/50 backdrop-blur"
+              title="Add Block"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <div className="p-1.5 text-minimal-muted/20 cursor-grab hover:text-minimal-muted transition-colors">
+              <GripVertical className="w-3.5 h-3.5" />
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

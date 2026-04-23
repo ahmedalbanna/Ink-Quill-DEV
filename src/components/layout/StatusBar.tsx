@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, Cpu, Upload } from 'lucide-react';
+import { Clock, Cpu, Upload, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAIStore } from '../../stores/aiStore';
+import { useUIStore } from '../../stores/uiStore';
 import { embeddingService, EmbeddingStatus } from '../../services/embeddingService';
 
 interface StatusBarProps {
@@ -25,6 +26,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   embeddingProgress
 }) => {
   const { ollamaStatus, provider } = useAIStore();
+  const { isIndexing, indexedChunks, indexedEpisodes } = useUIStore();
 
   return (
     <AnimatePresence mode="wait">
@@ -33,32 +35,40 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 20, opacity: 0 }}
         className={cn(
-          "fixed bottom-0 inset-x-0 h-9 md:h-11 border-t border-minimal-border z-50 px-4 md:px-6 flex items-center justify-between transition-all duration-500",
-          "bg-minimal-bg/90 backdrop-blur-md text-minimal-muted select-none"
+          "fixed bottom-0 inset-x-0 h-9 md:h-11 border-t border-minimal-border z-[100] px-4 md:px-6 flex items-center justify-between transition-all duration-500",
+          "bg-minimal-bg/95 backdrop-blur-xl text-minimal-muted select-none shadow-[0_-4px_12px_rgba(0,0,0,0.03)]"
         )}
       >
         {/* Left Side: Stats */}
         <div className="flex gap-4 md:gap-8 items-center h-full">
           <div className="flex gap-4 md:gap-6">
             <div className="flex flex-col justify-center">
-              <span className="text-[8px] font-bold opacity-40 leading-none mb-0.5">WORDS</span>
-              <span className="text-[10px] font-mono font-bold text-minimal-text">{wordCount}</span>
+              <span className="text-[8px] font-bold opacity-40 leading-none mb-0.5 tracking-tighter">WORDS</span>
+              <span className="text-[11px] font-mono font-bold text-minimal-text tabular-nums">{wordCount}</span>
             </div>
             <div className="flex flex-col justify-center">
-              <span className="text-[8px] font-bold opacity-40 leading-none mb-0.5">CHARS</span>
-              <span className="text-[10px] font-mono font-bold text-minimal-text">{charCount}</span>
+              <span className="text-[8px] font-bold opacity-40 leading-none mb-0.5 tracking-tighter">CHARS</span>
+              <span className="text-[11px] font-mono font-bold text-minimal-text tabular-nums">{charCount}</span>
             </div>
           </div>
 
           <div className="h-6 w-px bg-minimal-border hidden sm:block" />
 
-          <div className="hidden sm:flex flex-col justify-center">
-            <span className="text-[8px] font-bold opacity-40 leading-none mb-0.5">READ TIME</span>
-            <div className="flex items-center gap-1.5">
-              <Clock className="w-3 h-3 opacity-60" />
-              <span className="text-[10px] font-mono font-bold text-minimal-text">{readingTime} MIN</span>
+          {isIndexing && (
+            <div className="flex items-center gap-2 px-2 py-0.5 bg-minimal-accent/5 rounded border border-minimal-accent/20 animate-pulse">
+              <Loader2 className="w-3 h-3 text-minimal-accent animate-spin" />
+              <span className="text-[9px] font-bold text-minimal-accent uppercase tracking-widest">Optimizing Intelligence Index...</span>
             </div>
-          </div>
+          )}
+
+          {!isIndexing && (
+            <div className="hidden sm:flex flex-col justify-center">
+              <span className="text-[8px] font-bold opacity-40 leading-none mb-0.5 tracking-tighter">MEMORY DEPTH</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-mono font-bold text-minimal-muted">{indexedChunks + indexedEpisodes} NODES</span>
+              </div>
+            </div>
+          )}
 
           {wordGoal > 0 && (
             <>

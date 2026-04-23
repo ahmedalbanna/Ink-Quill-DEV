@@ -1,44 +1,72 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Download, Upload, FileText, Code, Save } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import { exportToPDF, exportToHTML, exportToMarkdown, exportToDOCX } from '../../services/exportService';
+
+import { useEditorStore } from '../../stores/editorStore';
+import { useUIStore } from '../../stores/uiStore';
 
 interface FileActionsMenuProps {
   showFileActions: boolean;
   setShowFileActions: (val: boolean) => void;
-  importFileInputRef: React.RefObject<HTMLInputElement>;
   editorRef: React.RefObject<any>;
   markdown: string;
+  pageId: string;
+  inline?: boolean;
 }
 
 export const FileActionsMenu: React.FC<FileActionsMenuProps> = ({
   showFileActions,
   setShowFileActions,
-  importFileInputRef,
   editorRef,
-  markdown
+  markdown,
+  pageId,
+  inline = false
 }) => {
+  const { wipePage } = useEditorStore();
+  const { setImportModal } = useUIStore();
+
   return (
-    <div className="relative">
-      <motion.button
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 0.5, x: 0 }}
-        whileHover={{ opacity: 1, scale: 1.05 }}
-        className="p-3.5 bg-minimal-bg/90 backdrop-blur border border-minimal-border rounded-full shadow-2xl text-minimal-muted transition-all duration-300"
-        onClick={() => setShowFileActions(!showFileActions)} title="File Actions (Import/Export)"
-      >
-        <Download className="w-5 h-5" />
-      </motion.button>
+    <div className={inline ? "" : "relative"}>
+      {!inline && (
+        <motion.button
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 0.5, x: 0 }}
+          whileHover={{ opacity: 1, scale: 1.05 }}
+          className="p-3.5 bg-minimal-bg/90 backdrop-blur border border-minimal-border rounded-full shadow-2xl text-minimal-muted transition-all duration-300"
+          onClick={() => setShowFileActions(!showFileActions)} title="File Actions (Import/Export)"
+        >
+          <Download className="w-5 h-5" />
+        </motion.button>
+      )}
 
       {showFileActions && (
-        <div className="absolute right-full mr-4 bottom-0 flex flex-col gap-1 w-56 bg-minimal-bg border border-minimal-border rounded-2xl shadow-2xl p-2 z-[60]">
-          <div className="px-3 py-1.5 border-b border-minimal-border">
+        <div className={cn(
+          "flex flex-col gap-1 w-56 bg-minimal-bg border border-minimal-border rounded-2xl shadow-2xl p-2 z-[60]",
+          inline ? "absolute top-full right-0 mt-2" : "absolute right-full mr-4 bottom-0"
+        )}>
+          <div className="px-3 py-1.5 border-b border-minimal-border flex items-center justify-between">
             <span className="text-[9px] font-bold text-minimal-muted uppercase tracking-widest">File Actions</span>
+            <button 
+              onClick={() => {
+                if (window.confirm("Are you sure you want to wipe this page? This cannot be undone.")) {
+                   wipePage(pageId);
+                   setShowFileActions(false);
+                }
+              }}
+              className="px-2 py-0.5 rounded bg-red-50 text-[9px] font-bold text-red-500 hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest"
+            >
+              Wipe
+            </button>
           </div>
           <div className="p-1 space-y-1">
             {/* Import Section */}
             <button
-              onClick={() => importFileInputRef.current?.click()}
+              onClick={() => {
+                setImportModal(true);
+                setShowFileActions(false);
+              }}
               className="w-full text-left p-2.5 hover:bg-minimal-accent/5 rounded-xl transition-all flex items-center gap-3 group/item"
             >
               <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-500 group-hover/item:bg-emerald-500 group-hover/item:text-white transition-colors">

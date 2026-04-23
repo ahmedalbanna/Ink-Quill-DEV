@@ -34,7 +34,6 @@ interface AIState {
       model: string;
     };
   };
-  savedChats: { id: string; name: string; history: ChatMessage[]; timestamp: number; documentSnapshot?: string }[];
   
   setServiceProvider: (service: keyof AIState['serviceConfigs'], provider: AIState['provider']) => void;
   setServiceModel: (service: keyof AIState['serviceConfigs'], model: string) => void;
@@ -43,7 +42,6 @@ interface AIState {
   setOllamaHost: (host: string) => void;
   addMessage: (msg: ChatMessage) => void;
   setChatHistory: (history: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
-  setSavedChats: (chats: AIState['savedChats'] | ((prev: AIState['savedChats']) => AIState['savedChats'])) => void;
   setPersonalInstructions: (instructions: string | ((prev: string) => string)) => void;
   setSelectedModel: (model: string | ((prev: string) => string)) => void;
   setAvailableModels: (models: string[] | ((prev: string[]) => string[])) => void;
@@ -86,16 +84,12 @@ export const useAIStore = create<AIState>()(
           model: 'Xenova/all-MiniLM-L6-v2',
         },
       },
-      savedChats: [],
 
       addMessage: (msg) => set((state) => ({ 
         chatHistory: [...state.chatHistory, msg] 
       })),
       setChatHistory: (chatHistory) => set((state) => ({ 
         chatHistory: typeof chatHistory === 'function' ? chatHistory(state.chatHistory) : chatHistory 
-      })),
-      setSavedChats: (savedChats) => set((state) => ({ 
-        savedChats: typeof savedChats === 'function' ? savedChats(state.savedChats) : savedChats 
       })),
       setPersonalInstructions: (personalInstructions) => set((state) => ({ 
         personalInstructions: typeof personalInstructions === 'function' ? personalInstructions(state.personalInstructions) : personalInstructions 
@@ -141,7 +135,6 @@ export const useAIStore = create<AIState>()(
         personalInstructions: state.personalInstructions,
         selectedModel: state.selectedModel,
         chatHistory: state.chatHistory,
-        savedChats: state.savedChats,
         provider: state.provider,
         serviceConfigs: state.serviceConfigs,
         apiKeys: state.apiKeys,

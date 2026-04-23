@@ -17,6 +17,7 @@ interface SearchBarProps {
   setIsWholeWord: (val: boolean) => void;
   isSemantic: boolean;
   setIsSemantic: (val: boolean) => void;
+  semanticResults?: { text: string, score: number, source?: string }[];
   handleFindNext: () => void;
   handleReplace: () => void;
   handleReplaceAll: () => void;
@@ -36,6 +37,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   setIsWholeWord,
   isSemantic,
   setIsSemantic,
+  semanticResults = [],
   handleFindNext,
   handleReplace,
   handleReplaceAll,
@@ -116,15 +118,15 @@ export const SearchBar: React.FC<SearchBarProps> = ({
               </div>
             </div>
             {isSemantic && findText && (
-              <div className="flex flex-col gap-1 px-1">
+              <div className="flex flex-col gap-1 px-1 min-w-[80px]">
                 <div className="flex justify-between items-center text-[9px] font-bold text-minimal-muted uppercase tracking-wider">
-                  <span>Semantic Relevance</span>
-                  <span>{matchCount > 0 ? "Matches Available" : "No Context Found"}</span>
+                  <span>Relevance</span>
+                  <span>{semanticResults.filter(r => r.source === 'external').length} Ref</span>
                 </div>
                 <div className="h-1 bg-minimal-sidebar rounded-full overflow-hidden">
                    <div 
                      className="h-full bg-minimal-accent transition-all duration-500" 
-                     style={{ width: matchCount > 0 ? '100%' : '0%' }}
+                     style={{ width: matchCount > 0 || semanticResults.length > 0 ? '100%' : '0%' }}
                    />
                 </div>
               </div>
@@ -138,6 +140,26 @@ export const SearchBar: React.FC<SearchBarProps> = ({
               </button>
             </div>
           </div>
+
+          {isSemantic && semanticResults.some(r => r.source === 'external') && (
+            <div className="mt-1 flex flex-col gap-1 border-t border-minimal-border pt-2 max-h-32 overflow-y-auto custom-scrollbar">
+              <div className="flex items-center gap-1.5 text-[9px] font-bold text-minimal-muted uppercase tracking-wider mb-1">
+                <Zap className="w-2.5 h-2.5 fill-minimal-muted" />
+                Knowledge Base (Semantically Similar)
+              </div>
+              {semanticResults.filter(r => r.source === 'external').map((result, idx) => (
+                <div key={idx} className="bg-minimal-sidebar/50 rounded p-1.5 border border-minimal-border/50 hover:border-minimal-accent/30 transition-colors group">
+                   <p className="text-[11px] leading-relaxed line-clamp-2 text-minimal-muted group-hover:text-minimal-text transition-colors">
+                     {result.text}
+                   </p>
+                   <div className="flex justify-between items-center mt-1">
+                     <span className="text-[9px] font-mono text-minimal-accent">{(result.score * 100).toFixed(0)}% Match</span>
+                     <span className="text-[9px] text-minimal-muted opacity-0 group-hover:opacity-100 transition-opacity">Saved Resource</span>
+                   </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-minimal-sidebar rounded-lg flex items-center px-3 border border-minimal-border focus-within:border-minimal-accent transition-colors">

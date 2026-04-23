@@ -23,14 +23,45 @@ import {
   Schema
 } from "prosemirror-model"
 import {
-  inputRules,
   wrappingInputRule,
   textblockTypeInputRule,
   smartQuotes,
   emDash,
   ellipsis,
-  InputRule
+  InputRule,
+  inputRules
 } from "prosemirror-inputrules"
+
+export function toggleTask(state: any, dispatch: any) {
+  const { $from } = state.selection
+  const parent = $from.parent
+  if (parent.type.name !== 'paragraph') return false
+
+  const text = parent.textContent
+  const start = $from.start()
+  
+  const taskRegex = /^([-+*]\s)?\[( |x)\]\s/
+  const match = taskRegex.exec(text)
+
+  if (match) {
+    // Already a task, toggle checkbox or remove it?
+    // User request: "create markdown tasks like - [ ] Task and check them off"
+    // Let's toggle between [ ] and [x]
+    const isChecked = match[2] === 'x'
+    const newText = isChecked ? '[ ]' : '[x]'
+    const matchStart = start + (match[1] ? match[1].length : 0)
+    if (dispatch) {
+      dispatch(state.tr.insertText(newText, matchStart, matchStart + 3))
+    }
+    return true
+  } else {
+    // Not a task, add - [ ] to the start
+    if (dispatch) {
+      dispatch(state.tr.insertText("- [ ] ", start))
+    }
+    return true
+  }
+}
 
 export function buildKeymap(schema: Schema) {
   let keys: any = {}
@@ -41,6 +72,7 @@ export function buildKeymap(schema: Schema) {
   bind("Mod-z", undo)
   bind("Shift-Mod-z", redo)
   bind("Mod-y", redo)
+  bind("Mod-Enter", toggleTask)
 
   if (schema.marks.strong) bind("Mod-b", toggleMark(schema.marks.strong))
   if (schema.marks.em) bind("Mod-i", toggleMark(schema.marks.em))
@@ -80,11 +112,17 @@ export function buildInputRules(schema: Schema) {
   if (type = schema.nodes.blockquote) rules.push(wrappingInputRule(/^\s*>\s$/, type))
   if (type = schema.nodes.ordered_list) rules.push(wrappingInputRule(/^(\d+)\.\s$/, type, match => ({order: +match[1]}), (match, node) => node.childCount + node.attrs.order == +match[1]))
   if (type = schema.nodes.bullet_list) rules.push(wrappingInputRule(/^\s*([-+*])\s$/, type))
-  if (type = schema.nodes.code_block) rules.push(textblockTypeInputRule(/^```$/, type))
+  if (type = schema.nodes.code_block) rules.push(textblockTypeInputRule(/^```(\w+)?\s$/, type, match => ({params: match[1]})))
   if (type = schema.nodes.heading) rules.push(textblockTypeInputRule(/^(#{1,6})\s$/, type, match => ({level: match[1].length})))
   if (type = schema.nodes.image) rules.push(new InputRule(/!\[(.*)\]\((.*)\)$/, (state, match, start, end) => {
     let alt = match[1], src = match[2]
     return state.tr.replaceWith(start, end, type.create({src, alt}))
   }))
+
+  // Task auto-completion rules
+  rules.push(new InputRule(/^\s*([-+*])\s\[ \]\s$/, (state, match, start, end) => {
+    return state.tr.insertText(match[0], start, end)
+  }))
+
   return inputRules({rules})
 }

@@ -19,11 +19,18 @@ vi.mock('../services/snapshotService', () => ({
 describe('editorStore', () => {
   beforeEach(() => {
     useEditorStore.setState({
-      pages: [{ id: 'default', title: 'Chapter 1', content: '# Welcome to Ink & Quill\n\nStart writing...' }],
+      pages: [{ 
+        id: 'default', 
+        title: 'Chapter 1', 
+        content: '# Welcome to Ink & Quill\n\nStart writing...',
+        isTypewriter: false,
+        isFocusMode: false,
+        wordGoal: 0,
+        snapshots: [],
+        updatedAt: Date.now()
+      }],
       activePageIds: ['default'],
-      cursor: null,
-      snapshots: [],
-      wordGoal: 0,
+      semanticClusters: [],
     });
     vi.clearAllMocks();
   });
@@ -46,15 +53,21 @@ describe('editorStore', () => {
 
   it('should add snapshots', async () => {
     const { addSnapshot } = useEditorStore.getState();
-    await addSnapshot('Snapshot 1');
-    expect(useEditorStore.getState().snapshots.length).toBe(1);
-    expect(useEditorStore.getState().snapshots[0].content).toBe('Snapshot 1');
-    expect(snapshotService.saveSnapshot).toHaveBeenCalledWith('Snapshot 1', undefined);
+    await addSnapshot('default', 'Snapshot content');
+    expect(useEditorStore.getState().pages[0].snapshots.length).toBe(1);
+    expect(useEditorStore.getState().pages[0].snapshots[0].content).toBe('Snapshot content');
+    expect(snapshotService.saveSnapshot).toHaveBeenCalledWith('Snapshot content', undefined);
   });
 
-  it('should set word goal', () => {
-    const { setWordGoal } = useEditorStore.getState();
-    setWordGoal(1000);
-    expect(useEditorStore.getState().wordGoal).toBe(1000);
+  it('should set word goal for a page', () => {
+    const { setPageSettings } = useEditorStore.getState();
+    setPageSettings('default', { wordGoal: 1000 });
+    expect(useEditorStore.getState().pages[0].wordGoal).toBe(1000);
+  });
+
+  it('should wipe page content', () => {
+    const { wipePage } = useEditorStore.getState();
+    wipePage('default');
+    expect(useEditorStore.getState().pages[0].content).toBe('');
   });
 });

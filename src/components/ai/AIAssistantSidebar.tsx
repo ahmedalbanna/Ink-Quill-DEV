@@ -1,11 +1,24 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, FolderOpen, Save, X, History, Check, ArrowRightLeft, Trash2, Bold, Italic, List, ImagePlus, Download, ImageIcon, Send } from 'lucide-react';
+import { Sparkles, FolderOpen, Save, X, History, Check, ArrowRightLeft, Trash2, Bold, Italic, List, ImagePlus, Download, ImageIcon, Send, Wand2, FileText, RefreshCw, Maximize2, ListOrdered, PenTool, CheckCheck, FastForward, Heading, Minimize2, Plus } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { cn } from '../../lib/utils';
 import { useAIStore } from '../../stores/aiStore';
 import { useUIStore } from '../../stores/uiStore';
 import { ChatMessage } from '../../services/aiService';
+
+const AI_ACTIONS = [
+  { id: 'improve', label: 'Improve', description: 'Enhance clarity & impact', icon: Wand2, color: 'text-blue-500', bg: 'bg-blue-50' },
+  { id: 'summarize', label: 'Summarize', description: 'Key points only', icon: FileText, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+  { id: 'rewrite', label: 'Rewrite', description: 'Better tone & flow', icon: RefreshCw, color: 'text-purple-500', bg: 'bg-purple-50' },
+  { id: 'expand', label: 'Expand', description: 'Add detail & depth', icon: Maximize2, color: 'text-amber-500', bg: 'bg-amber-50' },
+  { id: 'generate-outline', label: 'Outline', description: 'Document structure', icon: ListOrdered, color: 'text-indigo-500', bg: 'bg-indigo-50' },
+  { id: 'draft-topic', label: 'Draft', description: 'Write from topic', icon: PenTool, color: 'text-pink-500', bg: 'bg-pink-50' },
+  { id: 'fix-grammar', label: 'Fix Grammar', description: 'Polish & correct', icon: CheckCheck, color: 'text-cyan-500', bg: 'bg-cyan-50' },
+  { id: 'complete-text', label: 'Complete', description: 'Finish your thought', icon: FastForward, color: 'text-orange-500', bg: 'bg-orange-50' },
+  { id: 'suggest-title', label: 'Titles', description: 'Creative suggestions', icon: Heading, color: 'text-rose-500', bg: 'bg-rose-50' },
+  { id: 'shorten', label: 'Shorten', description: 'Make it concise', icon: Minimize2, color: 'text-slate-500', bg: 'bg-slate-50' },
+];
 
 interface AIAssistantSidebarProps {
   chatScrollRef: React.RefObject<HTMLDivElement>;
@@ -16,11 +29,10 @@ interface AIAssistantSidebarProps {
   chatAttachedImages: string[];
   setChatAttachedImages: React.Dispatch<React.SetStateAction<string[]>>;
   handleAiGenerate: () => Promise<void>;
-  saveCurrentChat: () => void;
   handleChatImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   formatChatInput: (type: 'bold' | 'italic' | 'list') => void;
-  exportChat: (history: ChatMessage[], format: 'json' | 'md') => void;
-  setAiResult: (val: string | null) => void;
+  applyContent: (content: string, method: 'append' | 'insert' | 'replace' | 'suggest') => void;
+  onAction?: (actionId: string) => void;
 }
 
 export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
@@ -32,66 +44,62 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
   chatAttachedImages,
   setChatAttachedImages,
   handleAiGenerate,
-  saveCurrentChat,
   handleChatImageUpload,
   formatChatInput,
-  exportChat,
-  setAiResult
+  applyContent,
+  onAction
 }) => {
-  const { showAIAssistant, setAIAssistant, setSavedConversations } = useUIStore();
+  const { showAIAssistant, setAIAssistant } = useUIStore();
   const { chatHistory, setChatHistory, isGenerating: isGeneratingAi, ollamaStatus } = useAIStore();
+  const [isMinimized, setIsMinimized] = React.useState(false);
 
   return (
     <AnimatePresence>
       {showAIAssistant && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setAIAssistant(false)}
-            className="fixed inset-0 bg-zinc-950/20 backdrop-blur-sm z-[60]"
-          />
-          <motion.div
-            initial={{ x: 400, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 400, opacity: 0 }}
-            className="fixed top-0 end-0 bottom-0 w-full md:w-[400px] bg-minimal-bg border-s border-minimal-border z-[70] shadow-2xl flex flex-col"
-          >
-            <div className="p-4 md:p-6 border-b border-minimal-border flex justify-between items-center bg-minimal-sidebar">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-minimal-accent flex items-center justify-center text-white shadow-lg">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-bold text-minimal-text uppercase tracking-widest leading-none">AI Assistant</h2>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <div className={cn(
-                      "w-1.5 h-1.5 rounded-full",
-                      ollamaStatus.loading ? "bg-minimal-muted animate-pulse" :
-                        ollamaStatus.connected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-red-500"
-                    )} />
-                    <p className="text-[9px] text-minimal-muted font-bold uppercase tracking-tight">
-                      {ollamaStatus.loading ? "Verifying..." : ollamaStatus.connected ? `Live: ${ollamaStatus.model}` : "Server Offline"}
-                    </p>
-                  </div>
+        <motion.div
+          initial={{ y: 20, opacity: 0, scale: 0.95 }}
+          animate={{ 
+            y: 0, 
+            opacity: 1, 
+            scale: 1,
+            height: isMinimized ? '80px' : '650px',
+            width: isMinimized ? '240px' : '420px'
+          }}
+          exit={{ y: 20, opacity: 0, scale: 0.95 }}
+          drag
+          dragConstraints={{ left: -1000, right: 0, top: -1000, bottom: 0 }}
+          dragElastic={0.1}
+          dragMomentum={false}
+          className="fixed bottom-6 right-6 w-full md:w-[420px] h-[650px] max-h-[90vh] bg-minimal-bg/95 backdrop-blur-xl border border-minimal-border z-[70] shadow-[0_20px_50px_rgba(0,0,0,0.2)] flex flex-col rounded-[2.5rem] overflow-hidden cursor-auto transition-shadow"
+          style={{ touchAction: 'none' }}
+        >
+          <div className="p-5 border-b border-minimal-border flex justify-between items-center bg-minimal-sidebar/50 cursor-grab active:cursor-grabbing group">
+            <div className="flex items-center gap-3 pointer-events-none select-none">
+              <div className="w-10 h-10 rounded-2xl bg-minimal-accent flex items-center justify-center text-white shadow-lg shadow-minimal-accent/20">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-xs font-black text-minimal-text uppercase tracking-[0.2em] leading-none mb-1">Intelligence</h2>
+                <div className="flex items-center gap-1.5">
+                  <div className={cn(
+                    "w-2 h-2 rounded-full",
+                    ollamaStatus.loading ? "bg-minimal-muted animate-pulse" :
+                      ollamaStatus.connected ? "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)]" : "bg-red-500"
+                  )} />
+                  <p className="text-[10px] text-minimal-muted font-bold uppercase tracking-tight">
+                    {ollamaStatus.loading ? "Waking up..." : ollamaStatus.connected ? `Live: ${ollamaStatus.model}` : "Offline"}
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+            </div>
+            
+            <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setSavedConversations(true)}
+                  onClick={() => setIsMinimized(!isMinimized)}
                   className="p-2 hover:bg-minimal-border rounded-full text-minimal-muted transition-colors"
-                  title="Saved Conversations"
+                  title={isMinimized ? "Expand" : "Minimize"}
                 >
-                  <FolderOpen className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={saveCurrentChat}
-                  disabled={chatHistory.length === 0}
-                  className="p-2 hover:bg-minimal-border rounded-full text-minimal-muted disabled:opacity-30 transition-colors"
-                  title="Save Conversation"
-                >
-                  <Save className="w-4 h-4" />
+                  {isMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={() => setAIAssistant(false)}
@@ -102,8 +110,11 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
               </div>
             </div>
 
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8" ref={chatScrollRef}>
+            <div className={cn(
+              "flex-1 flex flex-col min-h-0 overflow-hidden transition-opacity duration-300",
+              isMinimized ? "opacity-0 pointer-events-none" : "opacity-100"
+            )}>
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-8 scroll-smooth custom-scrollbar" ref={chatScrollRef}>
                 {chatHistory.length === 0 && (
                   <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-40 py-12">
                     <div className="w-12 h-12 rounded-2xl bg-minimal-border flex items-center justify-center">
@@ -122,42 +133,28 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
                       <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-widest">Deep context Thread</h3>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => setSavedConversations(true)}
-                          className="text-[10px] font-bold text-minimal-muted hover:text-minimal-accent hover:bg-minimal-accent/10 px-2 py-1 rounded transition-all uppercase flex items-center gap-1.5"
-                          title="Load Saved Conversations"
-                        >
-                          <History className="w-3 h-3" /> Library
-                        </button>
-                        <button
-                          onClick={saveCurrentChat}
-                          className="text-[10px] font-bold text-minimal-accent hover:bg-minimal-accent/10 px-2 py-1 rounded transition-colors uppercase flex items-center gap-1"
-                        >
-                          <Save className="w-3 h-3" /> Save
-                        </button>
-                        <button
                           onClick={() => {
                             if (window.confirm("Clear this conversation history?")) {
                               setChatHistory([]);
-                              setAiResult(null);
                             }
                           }}
                           className="text-[10px] font-bold text-red-500 hover:bg-red-500/10 px-2 py-1 rounded transition-colors uppercase"
                         >
-                          Clear
+                          Clear Thread
                         </button>
                       </div>
                     </div>
                     <div className="space-y-6 pb-4">
                       {chatHistory.map((msg, idx) => (
                         <div key={idx} className={cn(
-                          "flex flex-col gap-2 max-w-[90%] group/msg",
+                          "flex flex-col gap-1.5 max-w-[92%] group/msg",
                           msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
                         )}>
                           <div className={cn(
-                            "px-4 py-3 rounded-2xl text-xs font-medium leading-relaxed relative",
+                            "px-5 py-3.5 rounded-2xl text-[13px] leading-relaxed relative transition-all duration-300",
                             msg.role === 'user'
-                              ? "bg-minimal-accent text-white rounded-tr-none shadow-md shadow-minimal-accent/20"
-                              : "bg-minimal-sidebar border border-minimal-border text-minimal-text rounded-tl-none"
+                              ? "bg-minimal-accent text-white rounded-tr-none shadow-lg shadow-minimal-accent/20"
+                              : "bg-minimal-sidebar border border-minimal-border text-minimal-text rounded-tl-none shadow-sm"
                           )}>
                             {msg.images && msg.images.length > 0 && (
                               <div className="flex flex-wrap gap-2 mb-3">
@@ -177,36 +174,54 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
                             </div>
 
                             {msg.role === 'model' && (
-                              <div className="absolute top-0 right-0 -mr-2 -mt-2 flex gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
-                                <button
-                                  onClick={() => {
-                                    setAiResult(msg.parts[0].text);
-                                    setAIAssistant(true); // Open the insertion helper
-                                  }}
-                                  className="p-1.5 bg-emerald-500 text-white rounded-lg shadow-lg hover:scale-110 transition-transform"
-                                  title="Accept / Use this text"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setAiPrompt(`Revise this section: "${msg.parts[0].text.substring(0, 100)}..." \n\nMy Feedback: `);
-                                    chatInputRef.current?.focus();
-                                  }}
-                                  className="p-1.5 bg-blue-500 text-white rounded-lg shadow-lg hover:scale-110 transition-transform"
-                                  title="Revise / Feedback"
-                                >
-                                  <ArrowRightLeft className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setChatHistory(prev => prev.filter((_, i) => i !== idx));
-                                  }}
-                                  className="p-1.5 bg-red-500 text-white rounded-lg shadow-lg hover:scale-110 transition-transform"
-                                  title="Dismiss"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                              <div className="absolute top-0 right-0 -mr-2 -mt-2 flex flex-col gap-1 opacity-0 group-hover/msg:opacity-100 transition-all scale-90 group-hover/msg:scale-100 origin-bottom-left">
+                                <div className="flex gap-1 bg-minimal-bg border border-minimal-border p-1 rounded-xl shadow-xl">
+                                  <button
+                                    onClick={() => applyContent(msg.parts[0].text, 'replace')}
+                                    className="p-1.5 bg-minimal-accent text-white rounded-lg hover:scale-110 transition-transform flex items-center gap-1 px-2"
+                                    title="Replace selection"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    <span className="text-[8px] font-bold uppercase tracking-tighter">Replace</span>
+                                  </button>
+                                  <button
+                                    onClick={() => applyContent(msg.parts[0].text, 'append')}
+                                    className="p-1.5 bg-minimal-sidebar border border-minimal-border text-minimal-text rounded-lg hover:bg-minimal-border transition-all flex items-center gap-1 px-2"
+                                    title="Append to end"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span className="text-[8px] font-bold uppercase tracking-tighter">Append</span>
+                                  </button>
+                                  <button
+                                    onClick={() => applyContent(msg.parts[0].text, 'suggest')}
+                                    className="p-1.5 bg-minimal-sidebar border border-minimal-border text-minimal-text rounded-lg hover:bg-minimal-border transition-all flex items-center gap-1 px-2"
+                                    title="Add as suggestion block"
+                                  >
+                                    <ArrowRightLeft className="w-3 h-3" />
+                                    <span className="text-[8px] font-bold uppercase tracking-tighter">Suggest</span>
+                                  </button>
+                                </div>
+                                <div className="flex gap-1 self-end">
+                                  <button
+                                    onClick={() => {
+                                      setAiPrompt(`Revise this: "${msg.parts[0].text.substring(0, 50)}..." \n\nFeedback: `);
+                                      chatInputRef.current?.focus();
+                                    }}
+                                    className="p-1.5 bg-blue-500/10 text-blue-600 rounded-lg border border-blue-200 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                                    title="Revise"
+                                  >
+                                    <RefreshCw className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setChatHistory(prev => prev.filter((_, i) => i !== idx));
+                                    }}
+                                    className="p-1.5 bg-red-500/10 text-red-600 rounded-lg border border-red-200 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                                    title="Dismiss"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -217,15 +232,20 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
                       ))}
                       {isGeneratingAi && (
                         <div className="flex flex-col gap-2 items-start mr-auto max-w-[90%]">
-                          <div className="px-5 py-3 bg-minimal-sidebar border border-minimal-border rounded-2xl rounded-tl-none flex items-center gap-1.5">
-                            {[0, 1, 2].map(i => (
-                              <motion.div
-                                key={i}
-                                animate={{ y: [0, -3, 0], opacity: [0.3, 1, 0.3] }}
-                                transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-                                className="w-1.5 h-1.5 bg-minimal-accent rounded-full"
-                              />
-                            ))}
+                          <div className="px-5 py-3 bg-minimal-sidebar border border-minimal-border rounded-2xl rounded-tl-none flex flex-col gap-3">
+                            <div className="flex items-center gap-1.5">
+                              {[0, 1, 2].map(i => (
+                                <motion.div
+                                  key={i}
+                                  animate={{ y: [0, -3, 0], opacity: [0.3, 1, 0.3] }}
+                                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                                  className="w-1.5 h-1.5 bg-minimal-accent rounded-full"
+                                />
+                              ))}
+                            </div>
+                            <span className="text-[8px] font-bold text-minimal-accent uppercase tracking-widest animate-pulse">
+                              Gemini is crafting a response...
+                            </span>
                           </div>
                         </div>
                       )}
@@ -271,12 +291,6 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
                       multiple
                       onChange={handleChatImageUpload}
                     />
-                    {chatHistory.length > 0 && (
-                      <div className="ml-auto flex items-center gap-1">
-                        <button onClick={() => exportChat(chatHistory, 'json')} className="p-1.5 hover:bg-minimal-border rounded text-minimal-muted transition-colors" title="Export as JSON"><Download className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => exportChat(chatHistory, 'md')} className="p-1.5 hover:bg-minimal-border rounded text-minimal-muted transition-colors" title="Export as Markdown"><ImageIcon className="w-3.5 h-3.5" /></button>
-                      </div>
-                    )}
                   </div>
 
                   <div className="relative group">
@@ -305,16 +319,41 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
                   </div>
 
                   {chatHistory.length === 0 && (
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <button onClick={() => setAiPrompt("Brainstorm 5 topics for ")} className="p-2 border border-minimal-border rounded-xl text-[10px] font-bold uppercase tracking-wider text-minimal-muted hover:bg-minimal-bg hover:text-minimal-accent transition-all">Quick Brainstorm</button>
-                      <button onClick={() => setAiPrompt("Draft a professional ")} className="p-2 border border-minimal-border rounded-xl text-[10px] font-bold uppercase tracking-wider text-minimal-muted hover:bg-minimal-bg hover:text-minimal-accent transition-all">Quick Draft</button>
+                    <div className="mt-6 space-y-4">
+                      <div className="flex items-center gap-2 px-1">
+                        <Wand2 className="w-3 h-3 text-minimal-muted" />
+                        <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-widest">Deep context Actions</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {AI_ACTIONS.map((action) => (
+                          <button
+                            key={action.id}
+                            onClick={() => onAction?.(action.id)}
+                            className="text-left p-3 bg-minimal-bg border border-minimal-border rounded-2xl hover:border-minimal-accent hover:shadow-lg transition-all group/btn"
+                          >
+                            <div className={cn("w-10 h-10 rounded-xl mb-3 flex items-center justify-center transition-colors", action.bg, action.color, "group-hover/btn:bg-minimal-accent group-hover/btn:text-white")}>
+                              <action.icon className="w-5 h-5" />
+                            </div>
+                            <p className="text-[11px] font-bold text-minimal-text mb-0.5">{action.label}</p>
+                            <p className="text-[9px] text-minimal-muted font-medium leading-tight">{action.description}</p>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-2 px-1 mt-6">
+                        <PenTool className="w-3 h-3 text-minimal-muted" />
+                        <h3 className="text-[10px] font-bold text-minimal-muted uppercase tracking-widest">Quick Brainstorming</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => setAiPrompt("Brainstorm 5 topics for ")} className="p-2 border border-minimal-border rounded-xl text-[10px] font-bold uppercase tracking-wider text-minimal-muted hover:bg-minimal-bg hover:text-minimal-accent transition-all">Quick Brainstorm</button>
+                        <button onClick={() => setAiPrompt("Draft a professional ")} className="p-2 border border-minimal-border rounded-xl text-[10px] font-bold uppercase tracking-wider text-minimal-muted hover:bg-minimal-bg hover:text-minimal-accent transition-all">Quick Draft</button>
+                      </div>
                     </div>
                   )}
                 </section>
               </div>
             </div>
-          </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );

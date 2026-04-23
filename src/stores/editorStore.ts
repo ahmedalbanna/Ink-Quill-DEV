@@ -9,26 +9,27 @@ interface Page {
   content: string;
   isTypewriter: boolean;
   isFocusMode: boolean;
+  wordGoal: number;
   snapshots: Snapshot[];
+  cursor?: { from: number; to: number };
+  updatedAt: number;
 }
 
 interface EditorState {
   pages: Page[];
   activePageIds: string[]; // Pages currently visible/open horizontally
-  cursor: { from: number; to: number } | null;
   semanticClusters: SemanticCluster[];
-  wordGoal: number;
   
   setPageContent: (id: string, content: string) => void;
-  setPageSettings: (id: string, settings: Partial<Pick<Page, 'isTypewriter' | 'isFocusMode'>>) => void;
+  setPageSettings: (id: string, settings: Partial<Pick<Page, 'isTypewriter' | 'isFocusMode' | 'wordGoal'>>) => void;
   addPage: (title?: string, content?: string) => void;
   removePage: (id: string) => void;
   togglePageOpen: (id: string) => void;
-  setCursor: (cursor: { from: number; to: number } | null) => void;
+  setPageCursor: (id: string, cursor: { from: number; to: number } | null) => void;
   setSemanticClusters: (clusters: SemanticCluster[]) => void;
   addSnapshot: (pageId: string, content: string, userNote?: string) => Promise<void>;
   loadSnapshots: (pageId: string) => Promise<void>;
-  setWordGoal: (goal: number | ((prev: number) => number)) => void;
+  wipePage: (id: string) => void;
   clearSnapshots: (pageId: string) => Promise<void>;
   setSnapshots: (pageId: string, snapshots: Snapshot[] | ((prev: Snapshot[]) => Snapshot[])) => void;
 }
@@ -37,20 +38,20 @@ export const useEditorStore = create<EditorState>()(
   persist(
     (set) => ({
       pages: [{ 
-        id: 'default', 
-        title: 'Chapter 1', 
-        content: '# Welcome to Ink & Quill\n\nStart writing...',
-        isTypewriter: false,
-        isFocusMode: false,
-        snapshots: []
-      }],
+          id: 'default', 
+          title: 'Chapter 1', 
+          content: '# Welcome to Ink & Quill\n\nStart writing...',
+          isTypewriter: false,
+          isFocusMode: false,
+          wordGoal: 0,
+          snapshots: [],
+          updatedAt: Date.now()
+        }],
       activePageIds: ['default'],
-      cursor: null,
       semanticClusters: [],
-      wordGoal: 0,
       
       setPageContent: (id, content) => set((state) => ({
-        pages: state.pages.map(p => p.id === id ? { ...p, content } : p)
+        pages: state.pages.map(p => p.id === id ? { ...p, content, updatedAt: Date.now() } : p)
       })),
       setPageSettings: (id, settings) => set((state) => ({
         pages: state.pages.map(p => p.id === id ? { ...p, ...settings } : p)
@@ -63,7 +64,9 @@ export const useEditorStore = create<EditorState>()(
           content,
           isTypewriter: false,
           isFocusMode: false,
-          snapshots: []
+          wordGoal: 0,
+          snapshots: [],
+          updatedAt: Date.now()
         };
         return {
           pages: [...state.pages, newPage],
@@ -79,7 +82,9 @@ export const useEditorStore = create<EditorState>()(
           ? state.activePageIds.filter(pid => pid !== id)
           : [...state.activePageIds, id]
       })),
-      setCursor: (cursor) => set({ cursor }),
+      setPageCursor: (id, cursor) => set((state) => ({
+        pages: state.pages.map(p => p.id === id ? { ...p, cursor: cursor || undefined } : p)
+      })),
       setSemanticClusters: (semanticClusters) => set({ semanticClusters }),
       addSnapshot: async (pageId, content, userNote) => {
         const snapshot = await snapshotService.saveSnapshot(content, userNote);
@@ -90,18 +95,15 @@ export const useEditorStore = create<EditorState>()(
         }));
       },
       loadSnapshots: async (pageId) => {
-        // Note: Currently snapshots are global in the service, but we'll show them per page in the state
-        // In a real app we might want to filter by pageId in the DB
         const snapshots = await snapshotService.getSnapshots();
         set((state) => ({
           pages: state.pages.map(p => p.id === pageId ? { ...p, snapshots } : p)
         }));
       },
-      setWordGoal: (wordGoal) => set((state) => ({ 
-        wordGoal: typeof wordGoal === 'function' ? wordGoal(state.wordGoal) : wordGoal 
+      wipePage: (id) => set((state) => ({
+        pages: state.pages.map(p => p.id === id ? { ...p, content: '' } : p)
       })),
       clearSnapshots: async (pageId) => {
-        // This clears ALL in the service for now, but we'll reflect it in the page state
         await snapshotService.clearAllSnapshots();
         set((state) => ({
           pages: state.pages.map(p => p.id === pageId ? { ...p, snapshots: [] } : p)
@@ -118,8 +120,8 @@ export const useEditorStore = create<EditorState>()(
       partialize: (state) => ({
         pages: state.pages,
         activePageIds: state.activePageIds,
-        wordGoal: state.wordGoal,
       }),
     }
   )
 );
+
