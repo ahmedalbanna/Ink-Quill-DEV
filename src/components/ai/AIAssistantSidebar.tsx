@@ -2,6 +2,9 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, FolderOpen, Save, X, History, Check, ArrowRightLeft, Trash2, Bold, Italic, List, ImagePlus, Download, ImageIcon, Send, Wand2, FileText, RefreshCw, Maximize2, ListOrdered, PenTool, CheckCheck, FastForward, Heading, Minimize2, Plus } from 'lucide-react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import { cn } from '../../lib/utils';
 import { useAIStore } from '../../stores/aiStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -170,7 +173,11 @@ export const AIAssistantSidebar: React.FC<AIAssistantSidebarProps> = ({
                               </div>
                             )}
                             <div className="markdown-body">
-                              <Markdown>{msg.parts[0].text}</Markdown>
+                              {msg.parts && msg.parts.length > 0 && msg.parts[0]?.text ? (
+                                <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeSanitize]}>{msg.parts[0].text}</Markdown>
+                              ) : (
+                                <p className="text-gray-500 italic">Empty message</p>
+                              )}
                             </div>
 
                             {msg.role === 'model' && (

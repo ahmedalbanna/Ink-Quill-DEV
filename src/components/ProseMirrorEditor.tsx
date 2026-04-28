@@ -119,6 +119,8 @@ const editorSerializer = new MarkdownSerializer({
 
 const tableTokens = {
   table: { block: "table" },
+  thead: { ignore: true },
+  tbody: { ignore: true },
   tr: { block: "table_row" },
   th: { block: "table_header" },
   td: { block: "table_cell" }
@@ -538,6 +540,10 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
 
                 const start = view.coordsAtPos(from);
                 const end = view.coordsAtPos(to);
+                if (!start || !end) {
+                  setBubbleMenu(prev => ({ ...prev, show: false }));
+                  return;
+                }
                 const left = (start.left + end.left) / 2;
                 
                 setBubbleMenu({
@@ -639,6 +645,9 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
 
     return () => {
       view.destroy();
+      if (viewRef.current === view) {
+        viewRef.current = null;
+      }
     };
   }, []); // Only run on mount
 
@@ -883,7 +892,8 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
 
     setIsProcessingAI(true);
     try {
-      const fullDoc = defaultMarkdownSerializer.serialize(state.doc);
+      if (!viewRef.current || viewRef.current.isDestroyed || !(viewRef.current as any).docView) return;
+      const fullDoc = editorSerializer.serialize(state.doc);
       const cursorContext = getCursorContextInternal();
 
       let fullResponse = "";
@@ -911,12 +921,13 @@ const ProseMirrorEditor = forwardRef<EditorRef, Props>(({
       if (onAiResult) {
         onAiResult(result);
       } else {
+        if (!viewRef.current || viewRef.current.isDestroyed || !(viewRef.current as any).docView) return;
         const parsed = editorParser.parse(result);
-        const tr = state.tr.replaceWith(from, to, parsed.content);
+        const tr = viewRef.current.state.tr.replaceWith(from, to, parsed.content);
         tr.setMeta("addToHistory", true);
         tr.setMeta("history$group", "ai-action-" + Date.now()); // Ensure distinct history step
         tr.setMeta("ai-modification", true);
-        dispatch(tr);
+        viewRef.current.dispatch(tr);
       }
       
       setBubbleMenu(prev => ({ ...prev, show: false }));

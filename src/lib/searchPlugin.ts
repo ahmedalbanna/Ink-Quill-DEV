@@ -181,12 +181,13 @@ export const createSearchPlugin = () => {
           
           // Trigger a follow-up if it was an async operation (semantic)
           if (nextOptions.isSemantic && (query !== undefined || tr.docChanged)) {
-             matchesPromise.then(() => {
-                // Dispatch a transaction to refresh view with new matches
-                if (editorView && editorView.state.doc === newState.doc) {
-                   editorView.dispatch(editorView.state.tr.setMeta('searchRefresh', true));
-                }
-             });
+              matchesPromise.then(() => {
+                 // Dispatch a transaction to refresh view with new matches
+                 // Note: we must check if docView exists to prevent matchesNode error when destroyed
+                 if (editorView && (editorView as any).docView && editorView.state.doc === newState.doc) {
+                    editorView.dispatch(editorView.state.tr.setMeta('searchRefresh', true));
+                 }
+              });
           }
 
           // Use sync matches if available (for standard search) or existing semantic matches

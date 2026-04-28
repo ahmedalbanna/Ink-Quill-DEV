@@ -63,7 +63,6 @@ export default function App() {
     setMobileMenu,
     showSettings, setSettings,
     showAiSettings, setAiSettings,
-    showSavedConversations, setSavedConversations,
     showPages, setPagesMenu,
     direction, setDirection,
   } = useUIStore();
@@ -498,7 +497,6 @@ export default function App() {
     setChatHistory(historyWithUser);
     setAiPrompt('');
     setIsGeneratingAi(true);
-    setAiResult(null);
     setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
 
     try {
@@ -566,7 +564,6 @@ export default function App() {
     setAiPrompt('');
     setChatAttachedImages([]);
     setIsGeneratingAi(true);
-    setAiResult(null);
 
     setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
 
